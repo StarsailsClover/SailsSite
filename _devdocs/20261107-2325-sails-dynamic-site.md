@@ -33,14 +33,41 @@
 
 ## ToDo
 
-- [ ] 建立源码基线并完成现有构建
-- [ ] 实现 SQLite 数据层、认证、CSRF、限速与文章 CRUD API
-- [ ] 实现 Markdown 净化、图片上传与修订历史
-- [ ] 将公开博客切换为动态 API
-- [ ] 实现移动优先的独立文章管理端
-- [ ] 修复现有 XSS、外链、CSP、CNAME 和部署回退风险
-- [ ] 分档优化别墅、岩壁、水体、雾与光照
-- [ ] 完成 lint、类型检查、构建、API 测试和 Playwright 验收
-- [ ] 备份 LAX 配置并部署 systemd、Nginx、SQLite 与媒体
-- [ ] 配置 DNS 与 TLS，完成线上桌面/手机验收
-- [ ] 更新经验库与部署文档
+- [x] 建立源码基线并完成现有构建
+- [x] 实现 SQLite 数据层、认证、CSRF、限速与文章 CRUD API
+- [x] 实现 Markdown 净化、图片上传与修订历史
+- [x] 将公开博客切换为动态 API
+- [x] 实现移动优先的独立文章管理端
+- [x] 修复现有 XSS、外链、CSP、CNAME 和部署回退风险
+- [x] 分档优化别墅、岩壁、水体、雾与光照
+- [x] 完成 lint、类型检查、构建、API 测试和 Playwright 验收
+- [x] 备份 LAX 配置并部署 systemd、Nginx、SQLite 与媒体
+- [x] 配置 DNS 与 TLS，完成线上桌面/手机验收
+- [x] 更新经验库与部署文档
+
+## 第二阶段
+
+完成时间: 2026-11-08 14:47 HKT
+
+- [x] 文章合集、访客排序、合集简介与已有文章选择
+- [x] 文章标签、博客筛选与标签详情页
+- [x] 网站文案管理及首屏服务端注入，消除默认文案闪变
+- [x] 图片/视频媒体库、粘贴 URL/Markdown、视频 Range 播放
+- [x] X 动态服务端缓存、同源媒体代理与 `/feed` 真实内容
+- [x] GitHub 资料、仓库、最近事件与 365 天贡献热力图
+- [x] `/editor` 归档重定向，主站导航移除入口
+- [x] marked + DOMPurify + highlight.js 双端净化渲染升级
+- [x] 管理 API 域名隔离、API 版本门禁与安全响应头
+- [x] 桌面/移动两档 3D 质量、别墅和山谷场景材质优化
+- [x] 移动主站六等分顶栏与管理端 44px 触控模式栏
+- [x] 原 Profile 仓库清理网站文件并保留 README 与 Actions 文件
+- [x] 独立 `StarsailsClover/SailsSite` 仓库与 CI
+- [x] LAX release、部署备份与临时包清理，只保留当前和上一版
+
+## 发布证据
+
+- 源码提交: `f5adaddf600a6a12155ab00f466009f85ae667d8`
+- GitHub Actions: `42453433227`，成功
+- 线上回归: `C:\Users\Sails\.qa-playwright\sails-final-regression-20261108.json`
+- 当前 LAX release: `/srv/sails-site/releases/20261108T031422Z`
+- 上一版: `/srv/sails-site/releases/20261108T024331Z`

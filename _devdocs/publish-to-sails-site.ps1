@@ -1,5 +1,6 @@
 param(
-  [string]$RepoPath = "C:\Users\Sails\Documents\WorkandLife\StarsailsClover"
+  [string]$RepoPath = "C:\Users\Sails\Documents\WorkandLife\StarsailsClover",
+  [string]$CommitMessage = "feat: sync dynamic SailsSite"
 )
 
 $ErrorActionPreference = "Stop"
@@ -121,7 +122,7 @@ if ($parentSha) {
   $parents = @($parentSha)
 }
 $commitPayload = @{
-  message = "feat: initial dynamic SailsSite"
+  message = $CommitMessage
   tree = $tree.sha
   parents = $parents
   author = @{
