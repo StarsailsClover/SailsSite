@@ -1,0 +1,23 @@
+{
+  "name": "StarsailsClover · 飞流星墅",
+  "short_name": "Sails",
+  "description": "StarsailsClover 的数字山谷、文章与创作记录。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060807",
+  "theme_color": "#060807",
+  "icons": [
+    {
+      "src": "/github-avatar-20261108-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/github-avatar-20261108-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

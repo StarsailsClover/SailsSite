@@ -69,5 +69,17 @@
 - 源码提交: `f5adaddf600a6a12155ab00f466009f85ae667d8`
 - GitHub Actions: `42453433227`，成功
 - 线上回归: `C:\Users\Sails\.qa-playwright\sails-final-regression-20261108.json`
-- 当前 LAX release: `/srv/sails-site/releases/20261108T031422Z`
-- 上一版: `/srv/sails-site/releases/20261108T024331Z`
+- 当前 LAX release: `/srv/sails-site/releases/20261108T091643Z`
+- 上一版: `/srv/sails-site/releases/20261108T031422Z`
+
+## GitHub 头像 Favicon
+
+完成时间: 2026-11-08
+
+- [x] 从 `StarsailsClover` GitHub 头像生成 ICO、16/32/180/192/512 PNG
+- [x] 主站与管理端统一引用头像 favicon 和 Apple Touch Icon
+- [x] 增加 Web App Manifest 与 Windows Tile 图标
+- [x] Nginx 为 `.webmanifest` 返回 `application/manifest+json`
+- [x] 移除旧 `/favicon.svg` 引用与构建产物
+- [x] 清理 Cloudflare 固定路径 `/favicon.ico` 旧缓存
+- [x] 两个域名线上文件 SHA-256 与本地一致

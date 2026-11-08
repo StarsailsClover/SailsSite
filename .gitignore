@@ -36,3 +36,4 @@ assets/musicbox/*.mp3
 # Test screenshots
 *.png
 !.gitkeep
+!public/github-avatar-*.png
