@@ -11,12 +11,12 @@ Dynamic personal website and writing studio for [sails.oxygenai.top](https://sai
 
 ## Development
 
-`ash
+```bash
 npm ci
 npm run check
 npm run lint
 npm run test:server
 npm run build
-`
+```
 
 Deployment notes are in [`deploy/lax/README.zh.md`](deploy/lax/README.zh.md).
