@@ -6,10 +6,15 @@ import path from "node:path";
 import test from "node:test";
 import sharp from "sharp";
 import { createApp } from "./app.js";
+import { renderMarkdown } from "./content.js";
 import { seedPosts } from "./seed.js";
 import { hashPassword } from "./security.js";
 
 test("public and admin API flow", async (t) => {
+  assert.match(
+    renderMarkdown("![视频](/uploads/example.mp4)"),
+    /<video[^>]+controls/,
+  );
   const temp = mkdtempSync(path.join(os.tmpdir(), "sails-site-test-"));
   const distDir = path.join(temp, "dist");
   mkdirSync(distDir, { recursive: true });
