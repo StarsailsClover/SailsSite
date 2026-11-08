@@ -1,0 +1,28 @@
+[Unit]
+Description=StarsailsClover dynamic writing site API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sails-site
+Group=sails-site
+WorkingDirectory=/srv/sails-site/app
+EnvironmentFile=/etc/sails-site.env
+Environment=NODE_NO_WARNINGS=1
+Environment=SITE_DIST_DIR=/srv/sails-site/current/dist
+ExecStart=/usr/bin/node /srv/sails-site/app/server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/sails-site/data
+MemoryMax=768M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
