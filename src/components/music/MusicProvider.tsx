@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { listMusicTracks } from "@/lib/api";
 
 type RawTrack = {
   id: string;
@@ -9,8 +10,12 @@ type RawTrack = {
   coverPath: string;
   genre?: string;
   releaseYear?: number;
-  source?: "local" | "netease" | "backend";
+  source?: "local" | "netease" | "backend" | "authored";
   musicId?: string;
+  albumSlug?: string;
+  lyricsLrc?: string;
+  translationLrc?: string;
+  durationSeconds?: number;
 };
 
 type Playlist = {
@@ -41,6 +46,7 @@ type MusicContextValue = {
   next: () => void;
   previous: () => void;
   selectTrack: (index: number) => void;
+  selectTrackById: (id: string, startAt?: number) => void;
   seek: (value: number) => void;
 };
 
@@ -101,6 +107,8 @@ async function loadNeteaseTracks(config: MusicConfig) {
 
 export function MusicProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pendingSeekRef = useRef<{ id: string; time: number } | null>(null);
+  const switchingTrackRef = useRef(false);
   const [tracks, setTracks] = useState<RawTrack[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -112,16 +120,36 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     Promise.all([
       fetch("/assets/musicbox/cover/playlist.json").then((response) => response.json()).catch(() => ({ songs: [] } as Playlist)),
       fetch("/config/music.json").then((response) => response.json()).catch(() => ({} as MusicConfig)),
+      listMusicTracks().catch(() => []),
     ])
-      .then(async ([playlist, config]: [Playlist, MusicConfig]) => {
+      .then(async ([playlist, config, authoredTracks]: [
+        Playlist,
+        MusicConfig,
+        Awaited<ReturnType<typeof listMusicTracks>>,
+      ]) => {
+        const authored = authoredTracks.map((track): RawTrack => ({
+          id: track.id,
+          title: track.title,
+          artist: track.artistName,
+          album: track.albumTitle,
+          albumSlug: track.albumSlug,
+          filePath: track.audioUrl,
+          coverPath: track.coverUrl || "assets/musicbox/cover/Elegant.jpg",
+          genre: track.genre,
+          source: "authored",
+          lyricsLrc: track.lyricsLrc,
+          translationLrc: track.translationLrc,
+          durationSeconds: track.durationSeconds,
+          releaseYear: Number(track.createdAt.slice(0, 4)),
+        }));
         const localSongs = (playlist.songs ?? [])
           .filter((track) => track.artist.toLowerCase() !== "zc")
           .map((track) => ({ ...track, source: "local" as const }));
         const neteaseTracks = await loadNeteaseTracks(config);
-        const nextTracks = [...localSongs, ...neteaseTracks];
+        const nextTracks = [...authored, ...localSongs, ...neteaseTracks];
         setTracks(nextTracks);
         const elegantIndex = nextTracks.findIndex((track) => track.title.toLowerCase() === "elegant");
-        setCurrentIndex(elegantIndex >= 0 ? elegantIndex : 0);
+        setCurrentIndex(authored.length > 0 ? 0 : elegantIndex >= 0 ? elegantIndex : 0);
       })
       .catch(() => setError("播放列表暂时无法抵达，音乐空间仍保持静默。"));
   }, []);
@@ -133,6 +161,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!audioRef.current || !currentTrackId || !currentTrackPath) return;
+    switchingTrackRef.current = true;
     audioRef.current.src = assetUrl(currentTrackPath);
     audioRef.current.load();
     setProgress(0);
@@ -177,6 +206,26 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     setIsPlaying(true);
   }, []);
 
+  const selectTrackById = useCallback((id: string, startAt?: number) => {
+    const index = tracks.findIndex((track) => track.id === id);
+    if (index < 0) return;
+    if (index === currentIndex && audioRef.current) {
+      if (typeof startAt === "number" && Number.isFinite(startAt)) {
+        audioRef.current.currentTime = Math.max(0, startAt);
+        setProgress(Math.max(0, startAt));
+      }
+      pendingSeekRef.current = null;
+      setIsPlaying(true);
+      return;
+    }
+    pendingSeekRef.current =
+      typeof startAt === "number" && Number.isFinite(startAt)
+        ? { id, time: Math.max(0, startAt) }
+        : null;
+    setCurrentIndex(index);
+    setIsPlaying(true);
+  }, [currentIndex, tracks]);
+
   const seek = useCallback((value: number) => {
     if (!audioRef.current) return;
     audioRef.current.currentTime = value;
@@ -195,22 +244,37 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     next,
     previous,
     selectTrack,
+    selectTrackById,
     seek,
-  }), [tracks, currentTrack, currentIndex, isPlaying, progress, duration, error, playPause, next, previous, selectTrack, seek]);
+  }), [tracks, currentTrack, currentIndex, isPlaying, progress, duration, error, playPause, next, previous, selectTrack, selectTrackById, seek]);
 
   return (
     <MusicContext.Provider value={value}>
       {children}
       <audio
         ref={audioRef}
-        crossOrigin="anonymous"
         onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+        onLoadedMetadata={(event) => {
+          const audio = event.currentTarget;
+          setDuration(audio.duration || 0);
+          const pending = pendingSeekRef.current;
+          if (pending && currentTrack?.id === pending.id) {
+            audio.currentTime = pending.time;
+            setProgress(pending.time);
+            pendingSeekRef.current = null;
+          }
+          switchingTrackRef.current = false;
+        }}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => {
+          if (!switchingTrackRef.current) setIsPlaying(false);
+        }}
         onEnded={next}
         onError={() => {
           // load() 中断旧曲目的 MEDIA_ERR_ABORTED 是切歌的正常竞态，不是播放失败
           const mediaError = audioRef.current?.error;
           if (mediaError && mediaError.code === MediaError.MEDIA_ERR_ABORTED) return;
+          switchingTrackRef.current = false;
           setIsPlaying(false);
           if (currentTrack) setError(`无法播放 ${currentTrack.title}，可能文件不存在或外链受限。`);
         }}

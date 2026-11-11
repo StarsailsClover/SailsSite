@@ -12,8 +12,11 @@ stored in this repository.
   conflict-safe saves
 - Article collections with editable descriptions and visitor ordering
 - Tag filtering and tag detail pages
+- Music albums, artist profiles, track order, per-track covers and genres
+- Timestamped LRC lyrics with optional bilingual Chinese translations
+- Same-origin audio streaming with HTTP Range playback
 - Site copy editing with server-injected first-paint text
-- Image/video uploads with paste-ready URLs and HTTP Range playback
+- Image, audio and video uploads with paste-ready URLs
 - Live X timeline and GitHub profile, repository, event and contribution
   heatmap views
 - Desktop-quality and mobile-budgeted React Three Fiber scenes

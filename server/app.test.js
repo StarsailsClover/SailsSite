@@ -10,6 +10,26 @@ import { renderMarkdown } from "./content.js";
 import { seedPosts } from "./seed.js";
 import { hashPassword } from "./security.js";
 
+function makeWav(seconds = 1, sampleRate = 8000) {
+  const samples = seconds * sampleRate;
+  const dataSize = samples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}
+
 test("public and admin API flow", async (t) => {
   assert.match(
     renderMarkdown("![视频](/uploads/example.mp4)"),
@@ -67,6 +87,8 @@ test("public and admin API flow", async (t) => {
   });
 
   let response = await fetch(`${base}/api/v1/posts`);
+  assert.equal(response.status, 426);
+  response = await fetch(`${base}/api/v1/admin/session`);
   assert.equal(response.status, 426);
 
   response = await api("/api/v1/posts");
@@ -235,7 +257,161 @@ test("public and admin API flow", async (t) => {
   assert.equal(response.status, 200);
   const collectionDetail = await response.json();
   assert.equal(collectionDetail.collection.description, "合集简介");
+  assert.equal(
+    collectionDetail.collection.postCount,
+    collectionDetail.posts.length,
+  );
   assert.equal(collectionDetail.posts[0].id, published.id);
+  response = await api(`/api/v1/admin/collections/${collection.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      description: "原子合集更新",
+      postIds: [published.id],
+      expectedVersion: collection.version,
+    }),
+  });
+  assert.equal(response.status, 200);
+  collection = (await response.json()).collection;
+  assert.equal(collection.description, "原子合集更新");
+
+  response = await api("/api/v1/admin/music/albums", {
+    method: "POST",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "测试唱片",
+      slug: "test-record",
+      artistName: "StarsailsClover",
+      artistBio: "独立创作者。",
+      description: "一张用于 API 测试的唱片。",
+      coverUrl: "",
+      genre: "Ambient",
+      releaseDate: "2026-11-11",
+      status: "draft",
+    }),
+  });
+  assert.equal(response.status, 201);
+  let musicAlbum = (await response.json()).album;
+  response = await api(`/api/v1/admin/music/albums/${musicAlbum.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      status: "published",
+      expectedVersion: musicAlbum.version,
+    }),
+  });
+  assert.equal(response.status, 200);
+  musicAlbum = (await response.json()).album;
+
+  response = await api("/api/v1/music/albums");
+  assert.equal(response.status, 200);
+  assert.ok((await response.json()).albums.some((album) => album.slug === "test-record"));
+
+  response = await api(`/api/v1/admin/music/albums/${musicAlbum.id}/tracks`, {
+    method: "POST",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "雨线",
+      artistName: "StarsailsClover",
+      coverUrl: "",
+      genre: "Ambient",
+      audioUrl: "",
+      durationSeconds: 0,
+      trackNumber: 1,
+      lyricsLrc: "[00:00.00]雨落在屋檐\n[00:08.50]Light through the mist",
+      translationLrc: "[00:00.00]雨落在屋檐\n[00:08.50]光穿过薄雾",
+      status: "draft",
+    }),
+  });
+  assert.equal(response.status, 201);
+  musicAlbum = (await response.json()).album;
+  let musicTrack = musicAlbum.tracks.find((track) => track.title === "雨线");
+  assert.ok(musicTrack);
+
+  response = await api(`/api/v1/admin/music/tracks/${musicTrack.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      status: "published",
+      expectedVersion: musicTrack.version,
+    }),
+  });
+  assert.equal(response.status, 400);
+
+  const audioWav = makeWav();
+  response = await api("/api/v1/admin/media", {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "X-CSRF-Token": login.csrfToken,
+      "Content-Type": "audio/wav",
+      "X-File-Name": "rain-line.wav",
+    },
+    body: audioWav,
+  });
+  assert.equal(response.status, 201);
+  const audioUpload = await response.json();
+  const audioMedia = audioUpload.media;
+  assert.equal(audioMedia.kind, "audio");
+  assert.ok(audioUpload.durationSeconds >= 1);
+  const damagedMp3 = Buffer.concat([
+    Buffer.from("ID3", "ascii"),
+    Buffer.alloc(128, 0x41),
+  ]);
+  response = await api("/api/v1/admin/media", {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "X-CSRF-Token": login.csrfToken,
+      "Content-Type": "audio/mpeg",
+      "X-File-Name": "damaged.mp3",
+    },
+    body: damagedMp3,
+  });
+  assert.equal(response.status, 415);
+  assert.equal((await response.json()).error, "invalid_audio");
+  response = await fetch(`${base}${audioMedia.url}`, {
+    headers: { Range: "bytes=0-6" },
+  });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get("content-type"), "audio/wav");
+
+  response = await api(`/api/v1/admin/music/tracks/${musicTrack.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      audioUrl: audioMedia.url,
+      durationSeconds: 72,
+      status: "published",
+      expectedVersion: musicTrack.version,
+    }),
+  });
+  assert.equal(response.status, 200);
+  musicAlbum = (await response.json()).album;
+  musicTrack = musicAlbum.tracks.find((track) => track.id === musicTrack.id);
+  assert.equal(musicTrack.audioUrl, audioMedia.url);
+
+  response = await api("/api/v1/music/albums/test-record");
+  assert.equal(response.status, 200);
+  const publicMusicAlbum = (await response.json()).album;
+  assert.equal(publicMusicAlbum.tracks[0].title, "雨线");
+  assert.match(publicMusicAlbum.tracks[0].lyricsLrc, /\[00:08\.50\]/);
+  assert.match(publicMusicAlbum.tracks[0].translationLrc, /光穿过薄雾/);
+  response = await api("/api/v1/music/tracks");
+  assert.equal(response.status, 200);
+  const publicPlayerTracks = (await response.json()).tracks;
+  assert.ok(publicPlayerTracks.some((track) => track.id === musicTrack.id));
+  assert.equal(
+    publicPlayerTracks.find((track) => track.id === musicTrack.id).lyricsLrc,
+    "",
+  );
+  response = await api(`/api/v1/admin/media/${audioMedia.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: "{}",
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, "media_in_use");
 
   const png = await sharp({
     create: {
@@ -311,6 +487,25 @@ test("public and admin API flow", async (t) => {
   });
   assert.equal(response.status, 204);
   response = await api(`/api/v1/admin/media/${videoMedia.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: "{}",
+  });
+  assert.equal(response.status, 204);
+
+  response = await api(`/api/v1/admin/music/tracks/${musicTrack.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ expectedVersion: musicTrack.version }),
+  });
+  assert.equal(response.status, 200);
+  response = await api(`/api/v1/admin/music/albums/${musicAlbum.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ expectedVersion: musicAlbum.version }),
+  });
+  assert.equal(response.status, 204);
+  response = await api(`/api/v1/admin/media/${audioMedia.id}`, {
     method: "DELETE",
     headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
     body: "{}",

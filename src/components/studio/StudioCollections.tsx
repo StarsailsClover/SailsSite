@@ -15,7 +15,6 @@ import {
   getAdminCollection,
   listAdminCollections,
   listAdminPosts,
-  setCollectionPosts,
   updateAdminCollection,
   type ApiError,
   type CollectionSummary,
@@ -130,16 +129,11 @@ export default function StudioCollections({
     try {
       const updated = await updateAdminCollection(csrfToken, selectedId, {
         ...form,
+        postIds: selectedPostIds,
         expectedVersion: version,
       });
-      const finalCollection = await setCollectionPosts(
-        csrfToken,
-        selectedId,
-        selectedPostIds,
-        updated.version,
-      );
-      setVersion(finalCollection.version);
-      setForm(formFromCollection(finalCollection));
+      setVersion(updated.version);
+      setForm(formFromCollection(updated));
       await loadCollections();
       onNotice("合集已保存。");
     } catch (reason) {

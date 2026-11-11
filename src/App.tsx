@@ -1,5 +1,12 @@
-import { lazy, Suspense } from "react";
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useLayoutEffect } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { Github, Home as HomeIcon, Music2, PenLine, Rss, UserRound } from "lucide-react";
 import FloatingMusicPlayer from "@/components/music/FloatingMusicPlayer";
 import { MusicProvider } from "@/components/music/MusicProvider";
@@ -14,6 +21,7 @@ const GitHub = lazy(() => import("@/pages/GitHub"));
 const About = lazy(() => import("@/pages/About"));
 const Feed = lazy(() => import("@/pages/Feed"));
 const Music = lazy(() => import("@/pages/Music"));
+const MusicAlbum = lazy(() => import("@/pages/MusicAlbum"));
 const Studio = lazy(() => import("@/pages/Studio"));
 
 const navItems = [
@@ -29,6 +37,16 @@ function RouteFallback() {
   return <div className="route-loading">正在穿过雾谷…</div>;
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [pathname]);
+  return null;
+}
+
 function SiteShell() {
   const text = useSiteText();
   return (
@@ -37,7 +55,14 @@ function SiteShell() {
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-mark">
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className="nav-mark"
+                aria-label={text.nav[item.key] ?? item.key}
+                title={text.nav[item.key] ?? item.key}
+              >
               <Icon size={15} />
               <span>{text.nav[item.key] ?? item.key}</span>
             </NavLink>
@@ -55,6 +80,7 @@ function SiteShell() {
         <Route path="/about" element={<About />} />
         <Route path="/feed" element={<Feed />} />
         <Route path="/music" element={<Music />} />
+        <Route path="/music/:slug" element={<MusicAlbum />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <FloatingMusicPlayer />
@@ -79,6 +105,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <MusicProvider>
+        <ScrollToTop />
         <Suspense fallback={<RouteFallback />}>
           <SiteShell />
         </Suspense>

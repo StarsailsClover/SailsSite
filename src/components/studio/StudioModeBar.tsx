@@ -1,10 +1,11 @@
-import { FileText, Images, Layers3, Type } from "lucide-react";
+import { FileText, Images, Layers3, Music2, Type } from "lucide-react";
 
-export type StudioMode = "posts" | "collections" | "media" | "copy";
+export type StudioMode = "posts" | "collections" | "music" | "media" | "copy";
 
 const modes = [
   { id: "posts" as const, label: "文章", icon: FileText },
   { id: "collections" as const, label: "合集", icon: Layers3 },
+  { id: "music" as const, label: "音乐", icon: Music2 },
   { id: "media" as const, label: "媒体", icon: Images },
   { id: "copy" as const, label: "文案", icon: Type },
 ];
@@ -31,6 +32,8 @@ export default function StudioModeBar({
               key={item.id}
               className={mode === item.id ? "active" : ""}
               onClick={() => onMode(item.id)}
+              aria-label={item.label}
+              title={item.label}
             >
               <Icon size={16} />
               <span>{item.label}</span>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
+  AudioLines,
   Clipboard,
   Film,
   Image as ImageIcon,
@@ -107,7 +108,7 @@ export default function StudioMedia({
       <header className="studio-feature-editor-header">
         <div>
           <p>Media Library</p>
-          <h2>图片与视频</h2>
+          <h2>图片、音频与视频</h2>
         </div>
         <button
           type="button"
@@ -121,7 +122,7 @@ export default function StudioMedia({
         <input
           ref={fileRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,video/mp4,video/webm,video/quicktime"
+          accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/wav,audio/x-wav,audio/ogg,audio/flac,audio/x-flac,.mp3,.m4a,.aac,.wav,.ogg,.flac"
           hidden
           onChange={upload}
         />
@@ -149,7 +150,7 @@ export default function StudioMedia({
         <div className="studio-empty-copy">
           <ImageIcon size={28} />
           <h2>媒体库还是空的。</h2>
-          <p>上传图片或视频后，复制链接直接粘贴到文章中。</p>
+          <p>上传图片、音频或视频后，复制链接直接粘贴到文章与音乐作品中。</p>
         </div>
       ) : (
         <div className="studio-media-grid">
@@ -158,10 +159,20 @@ export default function StudioMedia({
               <div className="studio-media-preview">
                 {item.kind === "video" ? (
                   <video src={item.url} controls preload="metadata" />
+                ) : item.kind === "audio" ? (
+                  <audio src={item.url} controls preload="metadata" />
                 ) : (
                   <img src={item.url} alt={item.originalName} loading="lazy" />
                 )}
-                <span>{item.kind === "video" ? <Film size={14} /> : <ImageIcon size={14} />}</span>
+                <span>
+                  {item.kind === "video" ? (
+                    <Film size={14} />
+                  ) : item.kind === "audio" ? (
+                    <AudioLines size={14} />
+                  ) : (
+                    <ImageIcon size={14} />
+                  )}
+                </span>
               </div>
               <div className="studio-media-info">
                 <strong title={item.originalName}>{item.originalName}</strong>
@@ -176,7 +187,13 @@ export default function StudioMedia({
                   type="button"
                   className="studio-secondary-action"
                   onClick={() =>
-                    copy(item.kind === "image" ? `![${item.originalName}](${item.url})` : `![视频](${item.url})`)
+                    copy(
+                      item.kind === "image"
+                        ? `![${item.originalName}](${item.url})`
+                        : item.kind === "video"
+                          ? `![视频](${item.url})`
+                          : `[音频：${item.originalName}](${item.url})`,
+                    )
                   }
                 >
                   <Clipboard size={14} /> Markdown

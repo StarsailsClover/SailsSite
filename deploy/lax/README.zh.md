@@ -11,7 +11,7 @@
 ## 首次部署
 
 1. 创建 `sails-site` 系统用户和上述目录。
-2. 在 `/srv/sails-site/app` 安装 `server/package-lock.json` 的生产依赖。
+2. 使用 Node.js 22.12+，在 `/srv/sails-site/app` 安装 `server/package-lock.json` 的生产依赖。
 3. 将 `server/`、`package.json`、`package-lock.json` 放入 `/srv/sails-site/app`。
 4. 生成密码哈希和随机 `IP_HASH_SECRET`，写入权限 `600` 的 `/etc/sails-site.env`。
 5. 安装 systemd 与 Nginx 配置，先启动 HTTP ACME 配置。
@@ -26,6 +26,11 @@
 4. 在发布目录的 `dist/assets/musicbox` 中为共享 MP3 建立软链接，避免每个版本重复占空间。
 5. `systemctl restart sails-site`，再检测 `/healthz`、公开文章和两个域名的 TLS。
 6. 只保留当前和上一版静态发布，删除更旧目录。
+
+上传媒体支持 WebP 图片、MP4/WebM/MOV 视频，以及
+MP3/M4A/AAC/WAV/OGG/FLAC 音频。音频先验证文件签名与可解析时长，再由
+Node 提供带 HTTP Range 的同源播放；生产依赖必须包含 `music-metadata` 与
+`sharp`。
 
 ## 备份
 

@@ -5,6 +5,7 @@ import StudioLogin from "@/components/studio/StudioLogin";
 import StudioCollections from "@/components/studio/StudioCollections";
 import StudioMedia from "@/components/studio/StudioMedia";
 import StudioModeBar, { type StudioMode } from "@/components/studio/StudioModeBar";
+import StudioMusic from "@/components/studio/StudioMusic";
 import StudioRail from "@/components/studio/StudioRail";
 import StudioSiteText from "@/components/studio/StudioSiteText";
 import {
@@ -118,6 +119,7 @@ function StudioWorkspace({
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [mobilePane, setMobilePane] = useState<"list" | "editor">("list");
   const [mode, setMode] = useState<StudioMode>("posts");
+  const [musicDirty, setMusicDirty] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<TagSummary[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [notice, setNotice] = useState("");
@@ -477,6 +479,13 @@ function StudioWorkspace({
   };
 
   const signOut = async () => {
+    if (
+      mode === "music" &&
+      musicDirty &&
+      !window.confirm("音乐作品还有未保存修改，退出登录将丢失。继续吗？")
+    ) {
+      return;
+    }
     if (dirtyRef.current) await saveDraft();
     try {
       await logout(session.csrfToken);
@@ -491,6 +500,15 @@ function StudioWorkspace({
       <StudioModeBar
         mode={mode}
         onMode={(nextMode) => {
+          if (
+            mode === "music" &&
+            nextMode !== "music" &&
+            musicDirty &&
+            !window.confirm("音乐作品还有未保存修改，切换工作区将丢失。继续吗？")
+          ) {
+            return;
+          }
+          if (nextMode !== "music") setMusicDirty(false);
           setMode(nextMode);
           setMobilePane(nextMode === "posts" ? "list" : "editor");
         }}
@@ -551,6 +569,16 @@ function StudioWorkspace({
             csrfToken={session.csrfToken}
             onNotice={setNotice}
             onExpired={onExpired}
+          />
+        </div>
+      )}
+      {mode === "music" && (
+        <div className="studio-main">
+          <StudioMusic
+            csrfToken={session.csrfToken}
+            onNotice={setNotice}
+            onExpired={onExpired}
+            onDirtyChange={setMusicDirty}
           />
         </div>
       )}

@@ -73,12 +73,78 @@ export type MediaItem = {
   filename: string;
   originalName: string;
   mimeType: string;
-  kind: "image" | "video";
+  kind: "image" | "video" | "audio";
   bytes: number;
   width: number | null;
   height: number | null;
   createdAt: string;
   url: string;
+};
+
+export type MusicAlbum = {
+  id: string;
+  slug: string;
+  title: string;
+  artistName: string;
+  artistBio: string;
+  description: string;
+  coverUrl: string;
+  genre: string;
+  releaseDate: string | null;
+  status: "draft" | "published";
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  trackCount: number;
+};
+
+export type MusicTrack = {
+  id: string;
+  albumId: string;
+  albumSlug: string;
+  albumTitle: string;
+  title: string;
+  artistName: string;
+  coverUrl: string;
+  genre: string;
+  audioUrl: string;
+  durationSeconds: number;
+  trackNumber: number;
+  lyricsLrc: string;
+  translationLrc: string;
+  status: "draft" | "published";
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type MusicAlbumDetail = {
+  album: MusicAlbum & { tracks: MusicTrack[] };
+};
+
+export type MusicAlbumInput = {
+  title: string;
+  slug: string;
+  artistName: string;
+  artistBio: string;
+  description: string;
+  coverUrl: string;
+  genre: string;
+  releaseDate: string;
+  status: "draft" | "published";
+};
+
+export type MusicTrackInput = {
+  title: string;
+  artistName: string;
+  coverUrl: string;
+  genre: string;
+  audioUrl: string;
+  durationSeconds: number;
+  trackNumber: number;
+  lyricsLrc: string;
+  translationLrc: string;
+  status: "draft" | "published";
 };
 
 export type GitHubOverview = {
@@ -295,6 +361,26 @@ export async function getCollection(slug: string) {
   );
 }
 
+export async function listMusicAlbums() {
+  const data = await request<{ albums: MusicAlbum[] }>(
+    "/api/v1/music/albums",
+  );
+  return data.albums;
+}
+
+export async function getMusicAlbum(slug: string) {
+  return request<MusicAlbumDetail>(
+    `/api/v1/music/albums/${encodeURIComponent(slug)}`,
+  );
+}
+
+export async function listMusicTracks() {
+  const data = await request<{ tracks: MusicTrack[] }>(
+    "/api/v1/music/tracks",
+  );
+  return data.tracks;
+}
+
 export async function login(username: string, password: string) {
   return request<AdminSession>("/api/v1/admin/login", {
     method: "POST",
@@ -424,7 +510,11 @@ export async function uploadMedia(
   file: File,
   onProgress?: (percent: number) => void,
 ) {
-  return new Promise<{ media: MediaItem; markdown: string }>((resolve, reject) => {
+  return new Promise<{
+    media: MediaItem;
+    markdown: string;
+    durationSeconds?: number;
+  }>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/v1/admin/media");
     xhr.withCredentials = true;
@@ -446,7 +536,13 @@ export async function uploadMedia(
         payload = xhr.responseText;
       }
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(payload as { media: MediaItem; markdown: string });
+        resolve(
+          payload as {
+            media: MediaItem;
+            markdown: string;
+            durationSeconds?: number;
+          },
+        );
         return;
       }
       const error =
@@ -480,6 +576,99 @@ export async function deleteMedia(csrfToken: string, id: string) {
     { method: "DELETE", body: "{}" },
     csrfToken,
   );
+}
+
+export async function listAdminMusicAlbums(csrfToken: string) {
+  const data = await request<{ albums: MusicAlbum[] }>(
+    "/api/v1/admin/music/albums",
+    {},
+    csrfToken,
+  );
+  return data.albums;
+}
+
+export async function getAdminMusicAlbum(csrfToken: string, id: string) {
+  return request<MusicAlbumDetail>(
+    `/api/v1/admin/music/albums/${encodeURIComponent(id)}`,
+    {},
+    csrfToken,
+  );
+}
+
+export async function createAdminMusicAlbum(
+  csrfToken: string,
+  input: Partial<MusicAlbumInput>,
+) {
+  const data = await request<{ album: MusicAlbum & { tracks: MusicTrack[] } }>(
+    "/api/v1/admin/music/albums",
+    { method: "POST", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.album;
+}
+
+export async function updateAdminMusicAlbum(
+  csrfToken: string,
+  id: string,
+  input: Partial<MusicAlbumInput> & { expectedVersion: number },
+) {
+  const data = await request<{ album: MusicAlbum & { tracks: MusicTrack[] } }>(
+    `/api/v1/admin/music/albums/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.album;
+}
+
+export async function deleteAdminMusicAlbum(
+  csrfToken: string,
+  id: string,
+  expectedVersion: number,
+) {
+  await request<null>(
+    `/api/v1/admin/music/albums/${encodeURIComponent(id)}`,
+    { method: "DELETE", body: jsonBody({ expectedVersion }) },
+    csrfToken,
+  );
+}
+
+export async function createAdminMusicTrack(
+  csrfToken: string,
+  albumId: string,
+  input: Partial<MusicTrackInput>,
+) {
+  const data = await request<{ album: MusicAlbum & { tracks: MusicTrack[] } }>(
+    `/api/v1/admin/music/albums/${encodeURIComponent(albumId)}/tracks`,
+    { method: "POST", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.album;
+}
+
+export async function updateAdminMusicTrack(
+  csrfToken: string,
+  id: string,
+  input: Partial<MusicTrackInput> & { expectedVersion: number },
+) {
+  const data = await request<{ album: MusicAlbum & { tracks: MusicTrack[] } }>(
+    `/api/v1/admin/music/tracks/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.album;
+}
+
+export async function deleteAdminMusicTrack(
+  csrfToken: string,
+  id: string,
+  expectedVersion: number,
+) {
+  const data = await request<{ album: MusicAlbum & { tracks: MusicTrack[] } }>(
+    `/api/v1/admin/music/tracks/${encodeURIComponent(id)}`,
+    { method: "DELETE", body: jsonBody({ expectedVersion }) },
+    csrfToken,
+  );
+  return data.album;
 }
 
 export async function getSiteTextSettings(csrfToken: string) {
@@ -544,7 +733,10 @@ export async function createAdminCollection(
 export async function updateAdminCollection(
   csrfToken: string,
   id: string,
-  input: Partial<CollectionInput> & { expectedVersion: number },
+  input: Partial<CollectionInput> & {
+    expectedVersion: number;
+    postIds?: string[];
+  },
 ) {
   const data = await request<{ collection: CollectionSummary }>(
     `/api/v1/admin/collections/${encodeURIComponent(id)}`,

@@ -21,7 +21,7 @@ export default function FloatingMusicPlayer() {
           max={duration || 1}
           value={progress}
           onChange={(event) => seek(Number(event.target.value))}
-          style={{ backgroundSize: `${percent}% 100%` }}
+          style={{ backgroundSize: `${percent}% 3px` }}
         />
       </div>
       <div className="player-actions">

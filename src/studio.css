@@ -1589,6 +1589,262 @@
   font-size: 10px;
 }
 
+.studio-music-overview {
+  display: grid;
+  grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr);
+  min-height: calc(100% - 96px);
+}
+
+.studio-music-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 18px;
+  padding: 26px;
+  border-right: 1px solid rgba(35, 50, 40, 0.1);
+  background: rgba(242, 245, 240, 0.66);
+}
+
+.studio-music-fields label,
+.studio-track-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.studio-music-fields label.wide,
+.studio-track-fields label.wide {
+  grid-column: 1 / -1;
+}
+
+.studio-music-fields label > span,
+.studio-track-fields label > span {
+  color: #66736a;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.studio-music-fields input,
+.studio-music-fields textarea,
+.studio-music-fields select,
+.studio-track-fields input,
+.studio-track-fields textarea,
+.studio-track-fields select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(31, 45, 36, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #202b24;
+  padding: 10px 12px;
+  font-size: 15px;
+  outline: none;
+}
+
+.studio-music-fields textarea,
+.studio-track-fields textarea {
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.studio-music-fields input:focus,
+.studio-music-fields textarea:focus,
+.studio-music-fields select:focus,
+.studio-track-fields input:focus,
+.studio-track-fields textarea:focus,
+.studio-track-fields select:focus {
+  border-color: #6d806f;
+  box-shadow: 0 0 0 3px rgba(90, 112, 94, 0.13);
+  background: #fff;
+}
+
+.studio-inline-upload {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.studio-inline-upload .studio-primary-action,
+.studio-inline-upload .studio-secondary-action {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.studio-music-cover-preview {
+  width: 150px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(31, 45, 36, 0.14);
+  border-radius: 7px;
+  background: #d9dfd8;
+}
+
+.studio-music-cover-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.studio-music-tracks {
+  min-width: 0;
+  padding: 26px;
+}
+
+.studio-music-tracks > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.studio-music-tracks > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.studio-music-tracks > header span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.studio-music-tracks > header small {
+  color: #7b867e;
+  font-size: 10px;
+}
+
+.studio-music-track-list {
+  border-top: 1px solid rgba(35, 50, 40, 0.12);
+}
+
+.studio-music-track-list > button {
+  width: 100%;
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(35, 50, 40, 0.12);
+  color: #405047;
+  text-align: left;
+}
+
+.studio-music-track-list > button:hover,
+.studio-music-track-list > button.active {
+  padding-inline: 13px;
+  background: rgba(118, 139, 121, 0.09);
+}
+
+.studio-music-track-list > button > span {
+  color: #9c7c50;
+  font-family: "SF Mono", monospace;
+  font-size: 10px;
+}
+
+.studio-music-track-list > button > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.studio-music-track-list strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-music-track-list small {
+  color: #7a857d;
+  font-size: 10px;
+}
+
+.studio-music-track-list svg {
+  color: #779180;
+}
+
+.studio-music-track-empty {
+  min-height: 170px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: #7c897f;
+}
+
+.studio-music-track-empty p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.studio-track-editor {
+  margin: 0 26px 46px;
+  padding: 24px;
+  border: 1px solid rgba(35, 50, 40, 0.12);
+  border-radius: 8px;
+  background: rgba(248, 250, 246, 0.72);
+}
+
+.studio-track-editor > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(35, 50, 40, 0.1);
+}
+
+.studio-track-editor > header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.studio-track-editor > header > div:last-child {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.studio-track-editor header p {
+  margin: 0;
+  color: #98784e;
+  font-family: "SF Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.studio-track-editor h3 {
+  overflow: hidden;
+  margin: 0;
+  font-family: "Noto Serif SC", "Songti SC", serif;
+  font-size: 28px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-track-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.studio-track-fields .lyric-field textarea {
+  min-height: 250px;
+  font-family: "SF Mono", "JetBrains Mono", "Noto Sans Mono", monospace;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.studio-track-fields label > small {
+  color: #7b867e;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .studio-media-page,
 .studio-copy-page {
   height: 100%;
@@ -1655,6 +1911,14 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.studio-media-preview audio {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: calc(100% - 16px);
 }
 
 .studio-media-preview > span {
@@ -1844,9 +2108,9 @@
 
   .studio-modebar {
     grid-column: 1;
-    grid-template-columns: auto 1fr;
-    gap: 10px;
-    padding: 0 10px 0 14px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px;
+    padding: 0 6px 0 10px;
   }
 
   .studio-modebar-brand span,
@@ -1855,11 +2119,13 @@
   }
 
   .studio-modebar-brand strong {
-    font-size: 15px;
+    font-size: 14px;
+    white-space: nowrap;
   }
 
   .studio-modebar nav {
     justify-self: end;
+    gap: 1px;
   }
 
   .studio-modebar nav button {
@@ -2083,6 +2349,11 @@
     flex-wrap: wrap;
   }
 
+  .studio-feature-editor-header .studio-primary-action,
+  .studio-feature-editor-header .studio-secondary-action {
+    min-height: 44px;
+  }
+
   .studio-feature-grid {
     grid-template-columns: 1fr;
   }
@@ -2095,6 +2366,63 @@
 
   .studio-collection-posts {
     padding: 20px;
+  }
+
+  .studio-music-overview {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .studio-music-fields {
+    grid-template-columns: 1fr;
+    padding: 20px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(35, 50, 40, 0.1);
+  }
+
+  .studio-music-fields label.wide,
+  .studio-track-fields label.wide {
+    grid-column: 1;
+  }
+
+  .studio-music-tracks {
+    padding: 20px;
+  }
+
+  .studio-music-tracks > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .studio-inline-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-track-editor {
+    margin: 0 16px 38px;
+    padding: 18px;
+  }
+
+  .studio-track-editor > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .studio-track-editor > header > div:last-child {
+    width: 100%;
+  }
+
+  .studio-track-editor > header .studio-primary-action,
+  .studio-track-editor > header .studio-secondary-action {
+    flex: 1;
+  }
+
+  .studio-track-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-track-fields .lyric-field textarea {
+    min-height: 220px;
   }
 
   .studio-sort-order {

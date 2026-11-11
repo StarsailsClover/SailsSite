@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { parseFile } from "music-metadata";
 import sharp from "sharp";
 import {
   ConflictError,
@@ -177,6 +178,71 @@ async function sniffVideo(filepath, mimeType) {
       return { extension: "webm", mimeType: "video/webm" };
     }
     return null;
+  } catch {
+    return null;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function sniffAudio(filepath, mimeType) {
+  const handle = await open(filepath, "r");
+  try {
+    const buffer = Buffer.alloc(32);
+    await handle.read(buffer, 0, buffer.length, 0);
+    if (
+      ["audio/mpeg", "audio/mp3", "audio/aac", "audio/x-aac"].includes(mimeType) &&
+      (buffer.subarray(0, 3).toString("ascii") === "ID3" ||
+        (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0))
+    ) {
+      const detected = ["audio/aac", "audio/x-aac"].includes(mimeType)
+        ? { extension: "aac", mimeType: "audio/aac" }
+        : { extension: "mp3", mimeType: "audio/mpeg" };
+      const metadata = await parseFile(filepath, { skipCovers: true });
+      const durationSeconds = Math.round(metadata.format.duration || 0);
+      if (durationSeconds <= 0) return null;
+      return { ...detected, durationSeconds };
+    }
+    if (
+      ["audio/mp4", "audio/x-m4a", "audio/m4a"].includes(mimeType) &&
+      buffer.subarray(4, 8).toString("ascii") === "ftyp"
+    ) {
+      const metadata = await parseFile(filepath, { skipCovers: true });
+      const durationSeconds = Math.round(metadata.format.duration || 0);
+      if (durationSeconds <= 0) return null;
+      return { extension: "m4a", mimeType: "audio/mp4", durationSeconds };
+    }
+    if (
+      ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"].includes(mimeType) &&
+      buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+      buffer.subarray(8, 12).toString("ascii") === "WAVE"
+    ) {
+      const metadata = await parseFile(filepath, { skipCovers: true });
+      const durationSeconds = Math.round(metadata.format.duration || 0);
+      if (durationSeconds <= 0) return null;
+      return { extension: "wav", mimeType: "audio/wav", durationSeconds };
+    }
+    if (
+      mimeType === "audio/ogg" &&
+      buffer.subarray(0, 4).toString("ascii") === "OggS"
+    ) {
+      const metadata = await parseFile(filepath, { skipCovers: true });
+      const durationSeconds = Math.round(metadata.format.duration || 0);
+      if (durationSeconds <= 0) return null;
+      return { extension: "ogg", mimeType: "audio/ogg", durationSeconds };
+    }
+    if (
+      ["audio/flac", "audio/x-flac"].includes(mimeType) &&
+      buffer.subarray(0, 4).toString("ascii") === "fLaC"
+    ) {
+      const metadata = await parseFile(filepath, { skipCovers: true });
+      const durationSeconds = Math.round(metadata.format.duration || 0);
+      if (durationSeconds <= 0) return null;
+      return { extension: "flac", mimeType: "audio/flac", durationSeconds };
+    }
+    return null;
+  } catch {
+    return null;
   } finally {
     await handle.close();
   }
@@ -188,6 +254,12 @@ function mimeTypeForUpload(filename) {
   if (extension === ".mp4") return "video/mp4";
   if (extension === ".webm") return "video/webm";
   if (extension === ".mov") return "video/quicktime";
+  if (extension === ".mp3") return "audio/mpeg";
+  if (extension === ".m4a") return "audio/mp4";
+  if (extension === ".aac") return "audio/aac";
+  if (extension === ".wav") return "audio/wav";
+  if (extension === ".ogg") return "audio/ogg";
+  if (extension === ".flac") return "audio/flac";
   return "application/octet-stream";
 }
 
@@ -454,13 +526,19 @@ ${items}
 </rss>`;
 }
 
-function renderSitemap(posts, baseUrl) {
+function renderSitemap(posts, albums, baseUrl) {
   const urls = ["", "/blog", "/github", "/about", "/feed", "/music"]
     .map((route) => `  <url><loc>${escapeXml(`${baseUrl}${route}`)}</loc></url>`)
     .concat(
       posts.map(
         (post) =>
           `  <url><loc>${escapeXml(`${baseUrl}/blog/${encodeURIComponent(post.slug)}`)}</loc><lastmod>${escapeXml(post.updatedAt)}</lastmod></url>`,
+      ),
+    )
+    .concat(
+      albums.map(
+        (album) =>
+          `  <url><loc>${escapeXml(`${baseUrl}/music/${encodeURIComponent(album.slug)}`)}</loc><lastmod>${escapeXml(album.updatedAt)}</lastmod></url>`,
       ),
     )
     .join("\n");
@@ -716,6 +794,17 @@ export function createApp(config) {
     if (!isAdminHost(req, config)) {
       return sendJson(res, 404, { error: "not_found", message: "接口不存在" });
     }
+    const version = String(req.headers["x-sails-api-version"] || "");
+    if (version !== config.apiVersion) {
+      throw new HttpError(
+        426,
+        "api_version_required",
+        `请发送 X-Sails-API-Version: ${config.apiVersion}`,
+        { currentVersion: config.apiVersion },
+      );
+    }
+    res.setHeader("X-Sails-API-Version", config.apiVersion);
+    res.setHeader("Vary", "X-Sails-API-Version");
     if (url.pathname === "/api/v1/admin/login") return login(req, res);
 
     if (url.pathname === "/api/v1/admin/session" && req.method === "GET") {
@@ -974,12 +1063,20 @@ export function createApp(config) {
     }
     if (collectionMatch && req.method === "PATCH") {
       const body = requireJsonBody(await readJson(req, config.jsonLimit));
-      const collection = db.updateCollection(
-        decodeURIComponent(collectionMatch[1]),
-        body,
-        body.expectedVersion,
-        session.username,
-      );
+      const collection = Array.isArray(body.postIds)
+        ? db.updateCollectionWithPosts(
+            decodeURIComponent(collectionMatch[1]),
+            body,
+            body.postIds,
+            body.expectedVersion,
+            session.username,
+          )
+        : db.updateCollection(
+            decodeURIComponent(collectionMatch[1]),
+            body,
+            body.expectedVersion,
+            session.username,
+          );
       return sendJson(res, 200, { collection }, adminCacheHeaders());
     }
     if (collectionMatch && req.method === "DELETE") {
@@ -992,6 +1089,86 @@ export function createApp(config) {
       return noBody(res, 204, adminCacheHeaders());
     }
 
+    if (url.pathname === "/api/v1/admin/music/albums" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { albums: db.listAdminMusicAlbums() },
+        adminCacheHeaders(),
+      );
+    }
+    if (url.pathname === "/api/v1/admin/music/albums" && req.method === "POST") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const album = db.createMusicAlbum(body, session.username);
+      return sendJson(res, 201, { album }, adminCacheHeaders());
+    }
+
+    const musicAlbumTracksMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/albums\/([^/]+)\/tracks$/,
+    );
+    if (musicAlbumTracksMatch && req.method === "POST") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const album = db.createMusicTrack(
+        decodeURIComponent(musicAlbumTracksMatch[1]),
+        body,
+        session.username,
+      );
+      return sendJson(res, 201, { album }, adminCacheHeaders());
+    }
+
+    const musicAlbumMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/albums\/([^/]+)$/,
+    );
+    if (musicAlbumMatch && req.method === "GET") {
+      const album = db.getAdminMusicAlbum(
+        decodeURIComponent(musicAlbumMatch[1]),
+      );
+      if (!album) throw new NotFoundError("专辑不存在");
+      return sendJson(res, 200, { album }, adminCacheHeaders());
+    }
+    if (musicAlbumMatch && req.method === "PATCH") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const album = db.updateMusicAlbum(
+        decodeURIComponent(musicAlbumMatch[1]),
+        body,
+        body.expectedVersion,
+        session.username,
+      );
+      return sendJson(res, 200, { album }, adminCacheHeaders());
+    }
+    if (musicAlbumMatch && req.method === "DELETE") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      db.deleteMusicAlbum(
+        decodeURIComponent(musicAlbumMatch[1]),
+        body.expectedVersion,
+        session.username,
+      );
+      return noBody(res, 204, adminCacheHeaders());
+    }
+
+    const musicTrackMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/tracks\/([^/]+)$/,
+    );
+    if (musicTrackMatch && req.method === "PATCH") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const album = db.updateMusicTrack(
+        decodeURIComponent(musicTrackMatch[1]),
+        body,
+        body.expectedVersion,
+        session.username,
+      );
+      return sendJson(res, 200, { album }, adminCacheHeaders());
+    }
+    if (musicTrackMatch && req.method === "DELETE") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const album = db.deleteMusicTrack(
+        decodeURIComponent(musicTrackMatch[1]),
+        body.expectedVersion,
+        session.username,
+      );
+      return sendJson(res, 200, { album }, adminCacheHeaders());
+    }
+
     if (url.pathname === "/api/v1/admin/media" && req.method === "GET") {
       return sendJson(
         res,
@@ -1001,23 +1178,10 @@ export function createApp(config) {
       );
     }
     if (url.pathname === "/api/v1/admin/media" && req.method === "POST") {
-      const mimeType = String(req.headers["content-type"] || "")
+      let mimeType = String(req.headers["content-type"] || "")
         .split(";")[0]
         .trim()
         .toLowerCase();
-      const supportedImage = /^image\/(jpeg|png|webp|avif|heic|heif)$/.test(
-        mimeType,
-      );
-      const supportedVideo = ["video/mp4", "video/webm", "video/quicktime"].includes(
-        mimeType,
-      );
-      if (!supportedImage && !supportedVideo) {
-        throw new HttpError(
-          415,
-          "unsupported_media",
-          "仅支持常用图片、MP4、WebM 或 MOV 视频",
-        );
-      }
       let originalName = String(req.headers["x-file-name"] || "upload");
       try {
         originalName = decodeURIComponent(originalName);
@@ -1025,6 +1189,44 @@ export function createApp(config) {
         // Keep the original header when it is not URI encoded.
       }
       originalName = path.basename(originalName).slice(0, 180);
+      const extension = path.extname(originalName).toLowerCase();
+      if (mimeType === "application/octet-stream") {
+        if (extension === ".mp3") mimeType = "audio/mpeg";
+        else if (extension === ".m4a") mimeType = "audio/mp4";
+        else if (extension === ".aac") mimeType = "audio/aac";
+        else if (extension === ".wav") mimeType = "audio/wav";
+        else if (extension === ".ogg") mimeType = "audio/ogg";
+        else if (extension === ".flac") mimeType = "audio/flac";
+      }
+      const supportedImage = /^image\/(jpeg|png|webp|avif|heic|heif)$/.test(
+        mimeType,
+      );
+      const supportedVideo = ["video/mp4", "video/webm", "video/quicktime"].includes(
+        mimeType,
+      );
+      const supportedAudio = [
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/mp4",
+        "audio/m4a",
+        "audio/x-m4a",
+        "audio/aac",
+        "audio/x-aac",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/wave",
+        "audio/vnd.wave",
+        "audio/ogg",
+        "audio/flac",
+        "audio/x-flac",
+      ].includes(mimeType);
+      if (!supportedImage && !supportedVideo && !supportedAudio) {
+        throw new HttpError(
+          415,
+          "unsupported_media",
+          "仅支持常用图片、MP4/WebM/MOV 视频或常见音频文件",
+        );
+      }
       const token = `${Date.now().toString(36)}-${randomToken(9)
         .replace(/[^a-z0-9_-]/gi, "")
         .toLowerCase()}`;
@@ -1086,17 +1288,44 @@ export function createApp(config) {
           );
         }
 
-        const video = await sniffVideo(temporaryPath, mimeType);
-        if (!video) {
-          throw new HttpError(415, "invalid_video", "视频格式与文件内容不匹配");
+        if (supportedVideo) {
+          const video = await sniffVideo(temporaryPath, mimeType);
+          if (!video) {
+            throw new HttpError(415, "invalid_video", "视频格式与文件内容不匹配");
+          }
+          const filename = `${token}.${video.extension}`;
+          await rename(temporaryPath, path.join(config.uploadsDir, filename));
+          const media = db.addMedia({
+            filename,
+            originalName,
+            mimeType: video.mimeType,
+            kind: "video",
+            bytes,
+            width: null,
+            height: null,
+          });
+          return sendJson(
+            res,
+            201,
+            {
+              media,
+              markdown: `![${originalName.replaceAll("]", "")}](${media.url})`,
+            },
+            adminCacheHeaders(),
+          );
         }
-        const filename = `${token}.${video.extension}`;
+
+        const audio = await sniffAudio(temporaryPath, mimeType);
+        if (!audio) {
+          throw new HttpError(415, "invalid_audio", "音频格式与文件内容不匹配");
+        }
+        const filename = `${token}.${audio.extension}`;
         await rename(temporaryPath, path.join(config.uploadsDir, filename));
         const media = db.addMedia({
           filename,
           originalName,
-          mimeType: video.mimeType,
-          kind: "video",
+          mimeType: audio.mimeType,
+          kind: "audio",
           bytes,
           width: null,
           height: null,
@@ -1106,7 +1335,8 @@ export function createApp(config) {
           201,
           {
             media,
-            markdown: `![${originalName.replaceAll("]", "")}](${media.url})`,
+            markdown: `[音频：${originalName.replaceAll("]", "")}](${media.url})`,
+            durationSeconds: audio.durationSeconds,
           },
           adminCacheHeaders(),
         );
@@ -1119,6 +1349,15 @@ export function createApp(config) {
     if (mediaMatch && req.method === "DELETE") {
       const media = db.getMedia(decodeURIComponent(mediaMatch[1]));
       if (!media) throw new NotFoundError("媒体文件不存在");
+      const references = db.findMediaReferences(media.id);
+      if (references.total > 0) {
+        throw new HttpError(
+          409,
+          "media_in_use",
+          "这个媒体仍被文章、合集或音乐作品引用",
+          { references },
+        );
+      }
       await unlink(path.join(config.uploadsDir, media.filename)).catch(
         () => undefined,
       );
@@ -1174,6 +1413,35 @@ export function createApp(config) {
           posts: db.listCollectionPosts(collection.id),
         },
         publicCacheHeaders(120),
+      );
+    }
+
+    if (url.pathname === "/api/v1/music/albums" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { albums: db.listPublicMusicAlbums() },
+        publicCacheHeaders(60),
+      );
+    }
+
+    const musicAlbumMatch = url.pathname.match(
+      /^\/api\/v1\/music\/albums\/([^/]+)$/,
+    );
+    if (musicAlbumMatch && req.method === "GET") {
+      const album = db.getPublicMusicAlbumBySlug(
+        decodeURIComponent(musicAlbumMatch[1]),
+      );
+      if (!album) throw new NotFoundError("专辑不存在");
+      return sendJson(res, 200, { album }, publicCacheHeaders(120));
+    }
+
+    if (url.pathname === "/api/v1/music/tracks" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { tracks: db.listPublicMusicTracks(getParam(url, "limit", "300")) },
+        publicCacheHeaders(60),
       );
     }
 
@@ -1315,10 +1583,11 @@ export function createApp(config) {
 
     if (url.pathname === "/api/v1/sitemap.xml" && req.method === "GET") {
       const posts = db.listPublished({ limit: 50 }).posts;
+      const albums = db.listPublicMusicAlbums();
       return sendText(
         res,
         200,
-        renderSitemap(posts, config.publicBaseUrl),
+        renderSitemap(posts, albums, config.publicBaseUrl),
         "application/xml; charset=utf-8",
         publicCacheHeaders(300),
       );
@@ -1336,7 +1605,11 @@ export function createApp(config) {
         url.pathname.startsWith("/uploads/")
       ) {
         const filename = decodeURIComponent(url.pathname.slice("/uploads/".length));
-        if (!/^[a-z0-9_-]+\.(?:webp|mp4|webm|mov)$/.test(filename)) {
+        if (
+          !/^[a-z0-9_-]+\.(?:webp|mp4|webm|mov|mp3|m4a|aac|wav|ogg|flac)$/.test(
+            filename,
+          )
+        ) {
           throw new NotFoundError();
         }
         const filepath = path.join(config.uploadsDir, filename);
@@ -1361,10 +1634,14 @@ export function createApp(config) {
             : {}),
         });
         if (req.method === "HEAD") return res.end();
-        return createReadStream(
+        const stream = createReadStream(
           filepath,
           range ? { start: range.start, end: range.end } : undefined,
-        ).pipe(res);
+        );
+        stream.on("error", () => {
+          res.destroy();
+        });
+        return stream.pipe(res);
       }
 
       if (url.pathname === "/x-media" && ["GET", "HEAD"].includes(req.method || "")) {
