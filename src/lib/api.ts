@@ -147,6 +147,89 @@ export type MusicTrackInput = {
   status: "draft" | "published";
 };
 
+export type MusicPlaylist = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  coverUrl: string;
+  sortOrder: number;
+  status: "draft" | "published";
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  trackCount: number;
+};
+
+export type MusicPlaylistTrackSource = "local" | "netease" | "external";
+
+export type MusicPlaylistTrack = {
+  id: string;
+  playlistId: string;
+  position: number;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  coverUrl: string;
+  audioUrl: string;
+  source: MusicPlaylistTrackSource;
+  externalId: string;
+  genre: string;
+  durationSeconds: number;
+  lyricsLrc: string;
+  translationLrc: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type MusicPlaylistDetail = {
+  playlist: MusicPlaylist & { tracks: MusicPlaylistTrack[] };
+};
+
+export type MusicPlaylistInput = {
+  title: string;
+  slug: string;
+  description: string;
+  coverUrl: string;
+  sortOrder: number;
+  status: "draft" | "published";
+};
+
+export type MusicPlaylistTrackInput = {
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  coverUrl: string;
+  audioUrl: string;
+  source: MusicPlaylistTrackSource;
+  externalId: string;
+  genre: string;
+  durationSeconds: number;
+  lyricsLrc: string;
+  translationLrc: string;
+};
+
+export type MusicIntegrations = {
+  neteaseApiBase: string;
+};
+
+export type NeteaseSongSummary = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  coverUrl: string;
+  durationSeconds: number;
+};
+
+export type NeteaseSongDraft = NeteaseSongSummary & {
+  audioUrl: string;
+  lyricsLrc: string;
+  translationLrc: string;
+  genre: string;
+};
+
 export type GitHubOverview = {
   profile: {
     login: string;
@@ -379,6 +462,19 @@ export async function listMusicTracks() {
     "/api/v1/music/tracks",
   );
   return data.tracks;
+}
+
+export async function listMusicPlaylists() {
+  const data = await request<{ playlists: MusicPlaylist[] }>(
+    "/api/v1/music/playlists",
+  );
+  return data.playlists;
+}
+
+export async function getMusicPlaylist(slug: string) {
+  return request<MusicPlaylistDetail>(
+    `/api/v1/music/playlists/${encodeURIComponent(slug)}`,
+  );
 }
 
 export async function login(username: string, password: string) {
@@ -669,6 +765,150 @@ export async function deleteAdminMusicTrack(
     csrfToken,
   );
   return data.album;
+}
+
+export async function listAdminMusicPlaylists(csrfToken: string) {
+  const data = await request<{ playlists: MusicPlaylist[] }>(
+    "/api/v1/admin/music/playlists",
+    {},
+    csrfToken,
+  );
+  return data.playlists;
+}
+
+export async function getAdminMusicPlaylist(csrfToken: string, id: string) {
+  return request<MusicPlaylistDetail>(
+    `/api/v1/admin/music/playlists/${encodeURIComponent(id)}`,
+    {},
+    csrfToken,
+  );
+}
+
+export async function createAdminMusicPlaylist(
+  csrfToken: string,
+  input: Partial<MusicPlaylistInput>,
+) {
+  const data = await request<MusicPlaylistDetail>(
+    "/api/v1/admin/music/playlists",
+    { method: "POST", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.playlist;
+}
+
+export async function updateAdminMusicPlaylist(
+  csrfToken: string,
+  id: string,
+  input: Partial<MusicPlaylistInput> & { expectedVersion: number },
+) {
+  const data = await request<MusicPlaylistDetail>(
+    `/api/v1/admin/music/playlists/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.playlist;
+}
+
+export async function deleteAdminMusicPlaylist(
+  csrfToken: string,
+  id: string,
+  expectedVersion: number,
+) {
+  await request<null>(
+    `/api/v1/admin/music/playlists/${encodeURIComponent(id)}`,
+    { method: "DELETE", body: jsonBody({ expectedVersion }) },
+    csrfToken,
+  );
+}
+
+export async function createAdminMusicPlaylistTrack(
+  csrfToken: string,
+  playlistId: string,
+  input: Partial<MusicPlaylistTrackInput>,
+) {
+  const data = await request<MusicPlaylistDetail>(
+    `/api/v1/admin/music/playlists/${encodeURIComponent(playlistId)}/tracks`,
+    { method: "POST", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.playlist;
+}
+
+export async function updateAdminMusicPlaylistTrack(
+  csrfToken: string,
+  id: string,
+  input: Partial<MusicPlaylistTrackInput> & { expectedVersion: number },
+) {
+  const data = await request<MusicPlaylistDetail>(
+    `/api/v1/admin/music/playlist-tracks/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.playlist;
+}
+
+export async function deleteAdminMusicPlaylistTrack(
+  csrfToken: string,
+  id: string,
+  expectedVersion: number,
+) {
+  await request<null>(
+    `/api/v1/admin/music/playlist-tracks/${encodeURIComponent(id)}`,
+    { method: "DELETE", body: jsonBody({ expectedVersion }) },
+    csrfToken,
+  );
+}
+
+export async function reorderAdminMusicPlaylistTracks(
+  csrfToken: string,
+  playlistId: string,
+  trackIds: string[],
+) {
+  const data = await request<MusicPlaylistDetail>(
+    `/api/v1/admin/music/playlists/${encodeURIComponent(playlistId)}/order`,
+    { method: "POST", body: jsonBody({ trackIds }) },
+    csrfToken,
+  );
+  return data.playlist;
+}
+
+export async function getAdminMusicIntegrations(csrfToken: string) {
+  const data = await request<{ integrations: MusicIntegrations }>(
+    "/api/v1/admin/music/integrations",
+    {},
+    csrfToken,
+  );
+  return data.integrations;
+}
+
+export async function updateAdminMusicIntegrations(
+  csrfToken: string,
+  input: MusicIntegrations,
+) {
+  const data = await request<{ integrations: MusicIntegrations }>(
+    "/api/v1/admin/music/integrations",
+    { method: "PATCH", body: jsonBody(input) },
+    csrfToken,
+  );
+  return data.integrations;
+}
+
+export async function searchNeteaseSongs(csrfToken: string, query: string) {
+  const data = await request<{ results: NeteaseSongSummary[] }>(
+    `/api/v1/admin/music/netease/search?q=${encodeURIComponent(query)}`,
+    {},
+    csrfToken,
+  );
+  return data.results;
+}
+
+export async function getNeteaseSong(csrfToken: string, id: string) {
+  const data = await request<{ song: NeteaseSongDraft }>(
+    `/api/v1/admin/music/netease/song/${encodeURIComponent(id)}`,
+    {},
+    csrfToken,
+  );
+  return data.song;
 }
 
 export async function getSiteTextSettings(csrfToken: string) {

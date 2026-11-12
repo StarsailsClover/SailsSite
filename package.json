@@ -16,6 +16,8 @@
     "test:lyrics": "node --experimental-strip-types --test src/lib/lyrics.test.ts"
   },
   "dependencies": {
+    "@applemusic-like-lyrics/core": "^0.6.0",
+    "@applemusic-like-lyrics/lyric": "^1.1.0",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.17.10",
     "clsx": "^2.1.1",

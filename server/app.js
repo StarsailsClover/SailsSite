@@ -263,6 +263,89 @@ function mimeTypeForUpload(filename) {
   return "application/octet-stream";
 }
 
+const NETEASE_MEDIA_HOST_PATTERN =
+  /(^|\.)(music\.126\.net|126\.net|music\.163\.com|163\.com)$/i;
+
+function neteaseMediaProxyUrl(rawUrl) {
+  const value = String(rawUrl ?? "").trim();
+  if (!value) return "";
+  return `/media-proxy?url=${encodeURIComponent(value.replace(/^http:\/\//i, "https://"))}`;
+}
+
+async function fetchNeteaseJson(apiBase, pathAndQuery) {
+  let response;
+  try {
+    response = await fetch(`${apiBase}${pathAndQuery}`, {
+      headers: {
+        "User-Agent": "SailsSite/1 (music studio)",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+  } catch {
+    throw new HttpError(502, "netease_upstream_unreachable", "网易云接口无法连接");
+  }
+  if (!response.ok) {
+    throw new HttpError(502, "netease_upstream_failed", "网易云接口返回异常");
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new HttpError(502, "netease_upstream_invalid", "网易云接口返回内容无法解析");
+  }
+}
+
+async function searchNetease(apiBase, keyword) {
+  const query = String(keyword || "").trim();
+  if (!query) throw new ValidationError("请输入搜索关键词");
+  const data = await fetchNeteaseJson(
+    apiBase,
+    `/cloudsearch?keywords=${encodeURIComponent(query)}&limit=20&type=1`,
+  );
+  const songs = Array.isArray(data?.result?.songs) ? data.result.songs : [];
+  return songs.map((song) => ({
+    id: String(song.id),
+    title: String(song.name || ""),
+    artist: (Array.isArray(song.ar) ? song.ar : [])
+      .map((artist) => artist?.name)
+      .filter(Boolean)
+      .join(" / "),
+    album: String(song.al?.name || ""),
+    coverUrl: neteaseMediaProxyUrl(song.al?.picUrl),
+    durationSeconds: Math.round(Number(song.dt || 0) / 1000),
+  }));
+}
+
+async function fetchNeteaseSong(apiBase, id) {
+  const songId = String(id || "").trim();
+  if (!/^\d{1,20}$/.test(songId)) throw new ValidationError("曲目 ID 无效");
+  const [detail, urlData, lyric] = await Promise.all([
+    fetchNeteaseJson(apiBase, `/song/detail?ids=${songId}`),
+    fetchNeteaseJson(apiBase, `/song/url/v1?id=${songId}&level=exhigh`).catch(() =>
+      fetchNeteaseJson(apiBase, `/song/url?id=${songId}`),
+    ),
+    fetchNeteaseJson(apiBase, `/lyric?id=${songId}`).catch(() => ({})),
+  ]);
+  const song = Array.isArray(detail?.songs) ? detail.songs[0] : null;
+  if (!song) throw new NotFoundError("网易云曲目不存在");
+  const playable = Array.isArray(urlData?.data) ? urlData.data[0] : null;
+  return {
+    id: songId,
+    title: String(song.name || ""),
+    artist: (Array.isArray(song.ar) ? song.ar : [])
+      .map((artist) => artist?.name)
+      .filter(Boolean)
+      .join(" / "),
+    album: String(song.al?.name || ""),
+    coverUrl: neteaseMediaProxyUrl(song.al?.picUrl),
+    audioUrl: neteaseMediaProxyUrl(playable?.url),
+    durationSeconds: Math.round(Number(song.dt || 0) / 1000),
+    lyricsLrc: String(lyric?.lrc?.lyric || ""),
+    translationLrc: String(lyric?.tlyric?.lyric || ""),
+    genre: "网易云音乐",
+  };
+}
+
 function parseRange(rangeHeader, size) {
   const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader || ""));
   if (!match) return null;
@@ -1169,6 +1252,146 @@ export function createApp(config) {
       return sendJson(res, 200, { album }, adminCacheHeaders());
     }
 
+    if (url.pathname === "/api/v1/admin/music/playlists" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { playlists: db.listAdminMusicPlaylists() },
+        adminCacheHeaders(),
+      );
+    }
+    if (url.pathname === "/api/v1/admin/music/playlists" && req.method === "POST") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const playlist = db.createMusicPlaylist(body, session.username);
+      return sendJson(res, 201, { playlist }, adminCacheHeaders());
+    }
+
+    const playlistTracksMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/playlists\/([^/]+)\/tracks$/,
+    );
+    if (playlistTracksMatch && req.method === "POST") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const playlist = db.createMusicPlaylistTrack(
+        decodeURIComponent(playlistTracksMatch[1]),
+        body,
+        session.username,
+      );
+      return sendJson(res, 201, { playlist }, adminCacheHeaders());
+    }
+
+    const playlistOrderMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/playlists\/([^/]+)\/order$/,
+    );
+    if (playlistOrderMatch && req.method === "POST") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const playlist = db.reorderMusicPlaylistTracks(
+        decodeURIComponent(playlistOrderMatch[1]),
+        body.trackIds,
+        session.username,
+      );
+      return sendJson(res, 200, { playlist }, adminCacheHeaders());
+    }
+
+    const playlistMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/playlists\/([^/]+)$/,
+    );
+    if (playlistMatch && req.method === "GET") {
+      const playlist = db.getMusicPlaylist(decodeURIComponent(playlistMatch[1]));
+      if (!playlist) throw new NotFoundError("歌单不存在");
+      return sendJson(res, 200, { playlist }, adminCacheHeaders());
+    }
+    if (playlistMatch && req.method === "PATCH") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const playlist = db.updateMusicPlaylist(
+        decodeURIComponent(playlistMatch[1]),
+        body,
+        body.expectedVersion,
+        session.username,
+      );
+      return sendJson(res, 200, { playlist }, adminCacheHeaders());
+    }
+    if (playlistMatch && req.method === "DELETE") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      db.deleteMusicPlaylist(
+        decodeURIComponent(playlistMatch[1]),
+        body.expectedVersion,
+        session.username,
+      );
+      return noBody(res, 204, adminCacheHeaders());
+    }
+
+    const playlistTrackMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/playlist-tracks\/([^/]+)$/,
+    );
+    if (playlistTrackMatch && req.method === "PATCH") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const playlist = db.updateMusicPlaylistTrack(
+        decodeURIComponent(playlistTrackMatch[1]),
+        body,
+        body.expectedVersion,
+        session.username,
+      );
+      return sendJson(res, 200, { playlist }, adminCacheHeaders());
+    }
+    if (playlistTrackMatch && req.method === "DELETE") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      db.deleteMusicPlaylistTrack(
+        decodeURIComponent(playlistTrackMatch[1]),
+        body.expectedVersion,
+        session.username,
+      );
+      return noBody(res, 204, adminCacheHeaders());
+    }
+
+    if (url.pathname === "/api/v1/admin/music/integrations" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { integrations: db.getIntegrationSettings() },
+        adminCacheHeaders(),
+      );
+    }
+    if (url.pathname === "/api/v1/admin/music/integrations" && req.method === "PATCH") {
+      const body = requireJsonBody(await readJson(req, config.jsonLimit));
+      const integrations = db.setIntegrationSettings(body, session.username);
+      return sendJson(res, 200, { integrations }, adminCacheHeaders());
+    }
+
+    if (url.pathname === "/api/v1/admin/music/netease/search" && req.method === "GET") {
+      const integrations = db.getIntegrationSettings();
+      if (!integrations.neteaseApiBase) {
+        throw new HttpError(
+          409,
+          "netease_not_configured",
+          "尚未配置网易云接口地址",
+        );
+      }
+      const results = await searchNetease(
+        integrations.neteaseApiBase,
+        getParam(url, "q").slice(0, 120),
+      );
+      return sendJson(res, 200, { results }, adminCacheHeaders());
+    }
+
+    const neteaseSongMatch = url.pathname.match(
+      /^\/api\/v1\/admin\/music\/netease\/song\/([^/]+)$/,
+    );
+    if (neteaseSongMatch && req.method === "GET") {
+      const integrations = db.getIntegrationSettings();
+      if (!integrations.neteaseApiBase) {
+        throw new HttpError(
+          409,
+          "netease_not_configured",
+          "尚未配置网易云接口地址",
+        );
+      }
+      const song = await fetchNeteaseSong(
+        integrations.neteaseApiBase,
+        decodeURIComponent(neteaseSongMatch[1]),
+      );
+      return sendJson(res, 200, { song }, adminCacheHeaders());
+    }
+
     if (url.pathname === "/api/v1/admin/media" && req.method === "GET") {
       return sendJson(
         res,
@@ -1445,6 +1668,26 @@ export function createApp(config) {
       );
     }
 
+    if (url.pathname === "/api/v1/music/playlists" && req.method === "GET") {
+      return sendJson(
+        res,
+        200,
+        { playlists: db.listPublicMusicPlaylists() },
+        publicCacheHeaders(60),
+      );
+    }
+
+    const musicPlaylistMatch = url.pathname.match(
+      /^\/api\/v1\/music\/playlists\/([^/]+)$/,
+    );
+    if (musicPlaylistMatch && req.method === "GET") {
+      const playlist = db.getPublicMusicPlaylistBySlug(
+        decodeURIComponent(musicPlaylistMatch[1]),
+      );
+      if (!playlist) throw new NotFoundError("歌单不存在");
+      return sendJson(res, 200, { playlist }, publicCacheHeaders(120));
+    }
+
     if (url.pathname === "/api/v1/posts" && req.method === "GET") {
       const data = db.listPublished({
         limit: getParam(url, "limit", "20"),
@@ -1664,6 +1907,52 @@ export function createApp(config) {
           headers: {
             "User-Agent": "SailsSiteMediaProxy/1",
             Referer: "https://x.com/",
+            ...(req.headers.range ? { Range: req.headers.range } : {}),
+          },
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!upstream.ok) {
+          throw new HttpError(502, "media_upstream_failed", "媒体暂时无法读取");
+        }
+        const headers = {
+          "Content-Type":
+            upstream.headers.get("content-type") || "application/octet-stream",
+          "Cache-Control": "public, max-age=3600, s-maxage=86400",
+          "X-Content-Type-Options": "nosniff",
+        };
+        const contentLength = upstream.headers.get("content-length");
+        const contentRange = upstream.headers.get("content-range");
+        const acceptRanges = upstream.headers.get("accept-ranges");
+        if (contentLength) headers["Content-Length"] = contentLength;
+        if (contentRange) headers["Content-Range"] = contentRange;
+        if (acceptRanges) headers["Accept-Ranges"] = acceptRanges;
+        res.writeHead(upstream.status, headers);
+        if (req.method === "HEAD" || !upstream.body) return res.end();
+        return Readable.fromWeb(upstream.body).pipe(res);
+      }
+
+      if (
+        url.pathname === "/media-proxy" &&
+        ["GET", "HEAD"].includes(req.method || "")
+      ) {
+        const targetValue = url.searchParams.get("url") || "";
+        let target;
+        try {
+          target = new URL(targetValue);
+        } catch {
+          throw new HttpError(400, "invalid_media_url", "媒体地址无效");
+        }
+        if (
+          !["http:", "https:"].includes(target.protocol) ||
+          !NETEASE_MEDIA_HOST_PATTERN.test(target.hostname)
+        ) {
+          throw new HttpError(403, "media_host_rejected", "媒体来源未获允许");
+        }
+        const upstream = await fetch(target, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+            Referer: "https://music.163.com/",
             ...(req.headers.range ? { Range: req.headers.range } : {}),
           },
           signal: AbortSignal.timeout(20000),

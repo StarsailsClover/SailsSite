@@ -512,6 +512,138 @@ test("public and admin API flow", async (t) => {
   });
   assert.equal(response.status, 204);
 
+  // 精选歌单：草稿不可见、发布后可见、曲目可编辑与排序
+  response = await api("/api/v1/admin/music/netease/search?q=test", {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, "netease_not_configured");
+
+  response = await api("/api/v1/admin/music/integrations", {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ neteaseApiBase: "https://netease.example.test" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json()).integrations.neteaseApiBase,
+    "https://netease.example.test",
+  );
+
+  response = await api("/api/v1/admin/music/playlists", {
+    method: "POST",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "夜间驾驶",
+      slug: "night-drive",
+      description: "夜路与路灯之间的循环。",
+      status: "draft",
+    }),
+  });
+  assert.equal(response.status, 201);
+  const playlist = (await response.json()).playlist;
+  assert.equal(playlist.status, "draft");
+  assert.equal(playlist.tracks.length, 0);
+
+  response = await api(`/api/v1/admin/music/playlists/${playlist.id}/tracks`, {
+    method: "POST",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "Third Party Song",
+      artistName: "Guest",
+      albumTitle: "Guest Album",
+      audioUrl: "https://cdn.example.test/song.mp3",
+      durationSeconds: 215,
+      lyricsLrc: "[00:12.00]first line",
+      translationLrc: "[00:12.00]第一句",
+    }),
+  });
+  assert.equal(response.status, 201);
+  const playlistWithTrack = (await response.json()).playlist;
+  assert.equal(playlistWithTrack.tracks.length, 1);
+  const playlistTrack = playlistWithTrack.tracks[0];
+  assert.equal(playlistTrack.audioUrl, "https://cdn.example.test/song.mp3");
+
+  response = await api("/api/v1/music/playlists");
+  assert.equal(response.status, 200);
+  assert.equal(
+    (await response.json()).playlists.some((item) => item.id === playlist.id),
+    false,
+  );
+
+  response = await api(`/api/v1/admin/music/playlists/${playlist.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "夜间驾驶 II",
+      status: "published",
+      expectedVersion: playlistWithTrack.version,
+    }),
+  });
+  assert.equal(response.status, 200);
+  const publishedPlaylist = (await response.json()).playlist;
+  assert.equal(publishedPlaylist.status, "published");
+  assert.equal(publishedPlaylist.slug, "night-drive");
+
+  response = await api("/api/v1/music/playlists");
+  assert.equal(response.status, 200);
+  const publicPlaylists = (await response.json()).playlists;
+  assert.ok(publicPlaylists.some((item) => item.id === playlist.id));
+
+  response = await api("/api/v1/music/playlists/night-drive");
+  assert.equal(response.status, 200);
+  const publicPlaylist = (await response.json()).playlist;
+  assert.equal(publicPlaylist.title, "夜间驾驶 II");
+  assert.equal(publicPlaylist.tracks.length, 1);
+  assert.equal(publicPlaylist.tracks[0].translationLrc, "[00:12.00]第一句");
+
+  response = await api(`/api/v1/admin/music/playlists/${playlist.id}/order`, {
+    method: "POST",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ trackIds: [playlistTrack.id] }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).playlist.tracks[0].position, 1);
+
+  response = await api(`/api/v1/admin/music/playlist-tracks/${playlistTrack.id}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({
+      title: "Third Party Song (Remastered)",
+      expectedVersion: playlistTrack.version,
+    }),
+  });
+  assert.equal(response.status, 200);
+  const renamedTrack = (await response.json()).playlist.tracks[0];
+  assert.equal(renamedTrack.title, "Third Party Song (Remastered)");
+
+  response = await api(
+    "/media-proxy?url=" + encodeURIComponent("https://example.com/song.mp3"),
+  );
+  assert.equal(response.status, 403);
+
+  response = await api(`/api/v1/admin/music/playlist-tracks/${playlistTrack.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ expectedVersion: renamedTrack.version }),
+  });
+  assert.equal(response.status, 204);
+  response = await api("/api/v1/music/playlists/night-drive");
+  assert.equal((await response.json()).playlist.tracks.length, 0);
+
+  response = await api(`/api/v1/admin/music/playlists/${playlist.id}`, {
+    headers: { Cookie: cookie },
+  });
+  const latestPlaylist = (await response.json()).playlist;
+  response = await api(`/api/v1/admin/music/playlists/${playlist.id}`, {
+    method: "DELETE",
+    headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },
+    body: JSON.stringify({ expectedVersion: latestPlaylist.version }),
+  });
+  assert.equal(response.status, 204);
+  response = await api("/api/v1/music/playlists/night-drive");
+  assert.equal(response.status, 404);
+
   response = await api(`/api/v1/admin/collections/${collection.id}`, {
     method: "DELETE",
     headers: { ...adminHeaders, "X-CSRF-Token": login.csrfToken },

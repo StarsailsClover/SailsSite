@@ -104,16 +104,21 @@ export default function MusicAlbum() {
       `[data-lyric-index="${activeLine}"]`,
     );
     if (!line) return;
+    // offsetTop 相对最近的定位祖先（这里是页面容器），直接使用会按整页高度滚动到最底部。
+    // 这里改用两者相对视口的坐标差，得到滚动容器内部的目标位置。
+    const viewportRect = viewport.getBoundingClientRect();
+    const lineRect = line.getBoundingClientRect();
+    const target =
+      viewport.scrollTop +
+      (lineRect.top - viewportRect.top) -
+      (viewport.clientHeight - lineRect.height) / 2;
     viewport.scrollTo({
-      top: Math.max(
-        0,
-        line.offsetTop - viewport.clientHeight / 2 + line.clientHeight / 2,
-      ),
+      top: Math.max(0, target),
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
         ? "auto"
         : "smooth",
     });
-  }, [activeLine, followLyrics]);
+  }, [activeLine, followLyrics, lyricLines]);
 
   if (loading) {
     return (

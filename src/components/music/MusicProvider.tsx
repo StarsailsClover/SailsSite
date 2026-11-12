@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { listMusicTracks } from "@/lib/api";
+import { listMusicTracks, type MusicPlaylistTrack } from "@/lib/api";
 
-type RawTrack = {
+export type RawTrack = {
   id: string;
   title: string;
   artist: string;
@@ -13,6 +13,7 @@ type RawTrack = {
   source?: "local" | "netease" | "backend" | "authored";
   musicId?: string;
   albumSlug?: string;
+  playlistSlug?: string;
   lyricsLrc?: string;
   translationLrc?: string;
   durationSeconds?: number;
@@ -38,16 +39,21 @@ type MusicContextValue = {
   tracks: RawTrack[];
   currentTrack: RawTrack | null;
   currentIndex: number;
+  queueLabel: string;
   isPlaying: boolean;
   progress: number;
   duration: number;
   error: string | null;
+  fullPlayerOpen: boolean;
   playPause: () => void;
   next: () => void;
   previous: () => void;
   selectTrack: (index: number) => void;
   selectTrackById: (id: string, startAt?: number) => void;
   seek: (value: number) => void;
+  playQueue: (items: RawTrack[], startIndex?: number, label?: string) => void;
+  openFullPlayer: () => void;
+  closeFullPlayer: () => void;
 };
 
 const MusicContext = createContext<MusicContextValue | null>(null);
@@ -115,6 +121,9 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [queueLabel, setQueueLabel] = useState("音乐空间");
+  const [fullPlayerOpen, setFullPlayerOpen] = useState(false);
+  const defaultQueueRef = useRef<RawTrack[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -147,8 +156,10 @@ export function MusicProvider({ children }: { children: ReactNode }) {
           .map((track) => ({ ...track, source: "local" as const }));
         const neteaseTracks = await loadNeteaseTracks(config);
         const nextTracks = [...authored, ...localSongs, ...neteaseTracks];
+        defaultQueueRef.current = nextTracks;
         setTracks(nextTracks);
         const elegantIndex = nextTracks.findIndex((track) => track.title.toLowerCase() === "elegant");
+        setQueueLabel(authored.length > 0 ? "创作专辑" : "音乐盒精选");
         setCurrentIndex(authored.length > 0 ? 0 : elegantIndex >= 0 ? elegantIndex : 0);
       })
       .catch(() => setError("播放列表暂时无法抵达，音乐空间仍保持静默。"));
@@ -232,21 +243,43 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     setProgress(value);
   }, []);
 
+  const playQueue = useCallback(
+    (items: RawTrack[], startIndex = 0, label?: string) => {
+      const queue = items.filter((item) => Boolean(item.filePath));
+      if (queue.length === 0) return;
+      const safeIndex = Math.min(Math.max(0, startIndex), queue.length - 1);
+      pendingSeekRef.current = null;
+      setTracks(queue);
+      setCurrentIndex(safeIndex);
+      setIsPlaying(true);
+      if (label) setQueueLabel(label);
+    },
+    [],
+  );
+
+  const openFullPlayer = useCallback(() => setFullPlayerOpen(true), []);
+  const closeFullPlayer = useCallback(() => setFullPlayerOpen(false), []);
+
   const value = useMemo(() => ({
     tracks,
     currentTrack,
     currentIndex,
+    queueLabel,
     isPlaying,
     progress,
     duration,
     error,
+    fullPlayerOpen,
     playPause,
     next,
     previous,
     selectTrack,
     selectTrackById,
     seek,
-  }), [tracks, currentTrack, currentIndex, isPlaying, progress, duration, error, playPause, next, previous, selectTrack, selectTrackById, seek]);
+    playQueue,
+    openFullPlayer,
+    closeFullPlayer,
+  }), [tracks, currentTrack, currentIndex, queueLabel, isPlaying, progress, duration, error, fullPlayerOpen, playPause, next, previous, selectTrack, selectTrackById, seek, playQueue, openFullPlayer, closeFullPlayer]);
 
   return (
     <MusicContext.Provider value={value}>
@@ -293,4 +326,26 @@ export function useMusic() {
 // eslint-disable-next-line react-refresh/only-export-components
 export function getAssetUrl(path: string) {
   return assetUrl(path);
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function playlistTrackToQueueTrack(track: MusicPlaylistTrack): RawTrack {
+  return {
+    id: `playlist:${track.id}`,
+    title: track.title,
+    artist: track.artistName || "未知歌手",
+    album: track.albumTitle || "精选歌单",
+    filePath: track.audioUrl,
+    coverPath: track.coverUrl || "assets/musicbox/cover/Elegant.jpg",
+    genre: track.genre || "精选歌单",
+    source:
+      track.source === "netease"
+        ? "netease"
+        : track.source === "local"
+          ? "local"
+          : "backend",
+    lyricsLrc: track.lyricsLrc,
+    translationLrc: track.translationLrc,
+    durationSeconds: track.durationSeconds,
+  };
 }

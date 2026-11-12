@@ -6,6 +6,7 @@ import StudioCollections from "@/components/studio/StudioCollections";
 import StudioMedia from "@/components/studio/StudioMedia";
 import StudioModeBar, { type StudioMode } from "@/components/studio/StudioModeBar";
 import StudioMusic from "@/components/studio/StudioMusic";
+import StudioPlaylists from "@/components/studio/StudioPlaylists";
 import StudioRail from "@/components/studio/StudioRail";
 import StudioSiteText from "@/components/studio/StudioSiteText";
 import {
@@ -581,6 +582,13 @@ function StudioWorkspace({
             onDirtyChange={setMusicDirty}
           />
         </div>
+      )}
+      {mode === "playlists" && (
+        <StudioPlaylists
+          csrfToken={session.csrfToken}
+          onNotice={setNotice}
+          onExpired={onExpired}
+        />
       )}
       {mode === "copy" && (
         <div className="studio-main">

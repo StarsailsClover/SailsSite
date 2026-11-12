@@ -132,6 +132,61 @@ function normalizeMusicText(value, field, maxLength, required = false) {
   return text;
 }
 
+function rowToMusicPlaylist(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    coverUrl: row.cover_url || "",
+    sortOrder: Number(row.sort_order ?? 0),
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    version: row.version,
+    trackCount: Number(row.track_count ?? 0),
+  };
+}
+
+function rowToMusicPlaylistTrack(row, { includeLyrics = true } = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    playlistId: row.playlist_id,
+    position: Number(row.position ?? 1),
+    title: row.title,
+    artistName: row.artist_name || "",
+    albumTitle: row.album_title || "",
+    coverUrl: row.cover_url || "",
+    audioUrl: row.audio_url || "",
+    source: row.source || "external",
+    externalId: row.external_id || "",
+    genre: row.genre || "",
+    durationSeconds: Number(row.duration_seconds ?? 0),
+    lyricsLrc: includeLyrics ? row.lyrics_lrc || "" : "",
+    translationLrc: includeLyrics ? row.translation_lrc || "" : "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    version: row.version,
+  };
+}
+
+function normalizePlaylistAudioUrl(value, field) {
+  const url = String(value ?? "").trim();
+  if (!url) return "";
+  if (url.length > 1200) throw new ValidationError(`${field}过长`);
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  throw new ValidationError(`${field}必须是站内上传或 http(s) 地址`);
+}
+
+function normalizePlaylistSource(value) {
+  const source = String(value ?? "").trim().toLowerCase();
+  if (["local", "netease", "external"].includes(source)) return source;
+  return "external";
+}
+
 function normalizeMusicUrl(value, field) {
   const url = String(value ?? "").trim();
   if (!url) return "";
@@ -357,6 +412,42 @@ export class SiteDatabase {
         FOREIGN KEY(album_id) REFERENCES music_albums(id)
       );
 
+      CREATE TABLE IF NOT EXISTS music_playlists (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        cover_url TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS music_playlist_tracks (
+        id TEXT PRIMARY KEY,
+        playlist_id TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 1,
+        title TEXT NOT NULL,
+        artist_name TEXT NOT NULL DEFAULT '',
+        album_title TEXT NOT NULL DEFAULT '',
+        cover_url TEXT,
+        audio_url TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'external',
+        external_id TEXT NOT NULL DEFAULT '',
+        genre TEXT NOT NULL DEFAULT '',
+        duration_seconds INTEGER NOT NULL DEFAULT 0,
+        lyrics_lrc TEXT NOT NULL DEFAULT '',
+        translation_lrc TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        FOREIGN KEY(playlist_id) REFERENCES music_playlists(id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_posts_public ON posts(status, published_at, deleted_at);
       CREATE INDEX IF NOT EXISTS idx_posts_updated ON posts(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_revisions_post ON post_revisions(post_id, version DESC);
@@ -369,6 +460,10 @@ export class SiteDatabase {
         ON music_albums(status, release_date DESC, deleted_at);
       CREATE INDEX IF NOT EXISTS idx_music_tracks_album
         ON music_tracks(album_id, status, track_number, deleted_at);
+      CREATE INDEX IF NOT EXISTS idx_music_playlists_public
+        ON music_playlists(status, sort_order, deleted_at);
+      CREATE INDEX IF NOT EXISTS idx_music_playlist_tracks
+        ON music_playlist_tracks(playlist_id, position, deleted_at);
     `);
   }
 
@@ -1252,6 +1347,444 @@ export class SiteDatabase {
       trackId: id,
     });
     return this.getAdminMusicAlbum(current.albumId);
+  }
+
+  listPublicMusicPlaylists() {
+    return this.db
+      .prepare(
+        `SELECT p.*,
+                (SELECT COUNT(*) FROM music_playlist_tracks t
+                  WHERE t.playlist_id = p.id AND t.deleted_at IS NULL) AS track_count
+         FROM music_playlists p
+         WHERE p.status = 'published' AND p.deleted_at IS NULL
+         ORDER BY p.sort_order ASC, p.updated_at DESC, p.created_at DESC`,
+      )
+      .all()
+      .map(rowToMusicPlaylist);
+  }
+
+  listAdminMusicPlaylists() {
+    return this.db
+      .prepare(
+        `SELECT p.*,
+                (SELECT COUNT(*) FROM music_playlist_tracks t
+                  WHERE t.playlist_id = p.id AND t.deleted_at IS NULL) AS track_count
+         FROM music_playlists p
+         WHERE p.deleted_at IS NULL
+         ORDER BY p.sort_order ASC, p.updated_at DESC, p.created_at DESC`,
+      )
+      .all()
+      .map(rowToMusicPlaylist);
+  }
+
+  getMusicPlaylist(id, { publicOnly = false } = {}) {
+    const row = this.db
+      .prepare(
+        `SELECT p.*,
+                (SELECT COUNT(*) FROM music_playlist_tracks t
+                  WHERE t.playlist_id = p.id AND t.deleted_at IS NULL) AS track_count
+         FROM music_playlists p
+         WHERE p.id = ? AND p.deleted_at IS NULL`,
+      )
+      .get(id);
+    const playlist = rowToMusicPlaylist(row);
+    if (!playlist) return null;
+    if (publicOnly && playlist.status !== "published") return null;
+    const tracks = this.db
+      .prepare(
+        `SELECT * FROM music_playlist_tracks
+         WHERE playlist_id = ? AND deleted_at IS NULL
+         ORDER BY position ASC, created_at ASC`,
+      )
+      .all(playlist.id)
+      .map((trackRow) => rowToMusicPlaylistTrack(trackRow));
+    return { ...playlist, tracks };
+  }
+
+  getPublicMusicPlaylistBySlug(slug) {
+    const row = this.db
+      .prepare(
+        `SELECT p.*,
+                (SELECT COUNT(*) FROM music_playlist_tracks t
+                  WHERE t.playlist_id = p.id AND t.deleted_at IS NULL) AS track_count
+         FROM music_playlists p
+         WHERE p.slug = ? AND p.status = 'published' AND p.deleted_at IS NULL`,
+      )
+      .get(String(slug || ""));
+    const playlist = rowToMusicPlaylist(row);
+    if (!playlist) return null;
+    const tracks = this.db
+      .prepare(
+        `SELECT * FROM music_playlist_tracks
+         WHERE playlist_id = ? AND deleted_at IS NULL
+         ORDER BY position ASC, created_at ASC`,
+      )
+      .all(playlist.id)
+      .map((trackRow) => rowToMusicPlaylistTrack(trackRow));
+    return { ...playlist, tracks };
+  }
+
+  createMusicPlaylist(input, username = "admin") {
+    const title = normalizeMusicText(input.title, "歌单名称", 160, true);
+    const slug = slugify(input.slug || title);
+    const description = normalizeMusicText(input.description, "歌单简介", 5000);
+    const coverUrl = normalizeMusicUrl(input.coverUrl, "封面地址");
+    const sortOrder = Number.isFinite(Number(input.sortOrder))
+      ? Number(input.sortOrder)
+      : 0;
+    const status = input.status === "published" ? "published" : "draft";
+    const id = `playlist_${randomUUID()}`;
+    const timestamp = nowIso();
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO music_playlists (
+            id, slug, title, description, cover_url, sort_order, status,
+            created_at, updated_at, version
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        )
+        .run(
+          id,
+          slug,
+          title,
+          description,
+          coverUrl,
+          sortOrder,
+          status,
+          timestamp,
+          timestamp,
+        );
+    } catch (error) {
+      if (String(error.message).includes("UNIQUE")) {
+        throw new ConflictError("这个歌单地址已被使用");
+      }
+      throw error;
+    }
+    this.audit("music.playlist.create", username, { playlistId: id, slug });
+    return this.getMusicPlaylist(id);
+  }
+
+  updateMusicPlaylist(id, input, expectedVersion, username = "admin") {
+    const current = this.getMusicPlaylist(id);
+    if (!current) throw new NotFoundError("歌单不存在");
+    if (Number(expectedVersion) !== current.version) throw new ConflictError();
+
+    const title =
+      input.title !== undefined
+        ? normalizeMusicText(input.title, "歌单名称", 160, true)
+        : current.title;
+    const slug =
+      input.slug !== undefined ? slugify(input.slug || title) : current.slug;
+    const description =
+      input.description !== undefined
+        ? normalizeMusicText(input.description, "歌单简介", 5000)
+        : current.description;
+    const coverUrl =
+      input.coverUrl !== undefined
+        ? normalizeMusicUrl(input.coverUrl, "封面地址")
+        : current.coverUrl;
+    const sortOrder =
+      input.sortOrder !== undefined && Number.isFinite(Number(input.sortOrder))
+        ? Number(input.sortOrder)
+        : current.sortOrder;
+    const status =
+      input.status !== undefined
+        ? input.status === "published"
+          ? "published"
+          : "draft"
+        : current.status;
+
+    try {
+      const result = this.db
+        .prepare(
+          `UPDATE music_playlists SET
+            slug = ?, title = ?, description = ?, cover_url = ?, sort_order = ?,
+            status = ?, updated_at = ?, version = version + 1
+           WHERE id = ? AND version = ? AND deleted_at IS NULL`,
+        )
+        .run(
+          slug,
+          title,
+          description,
+          coverUrl,
+          sortOrder,
+          status,
+          nowIso(),
+          id,
+          current.version,
+        );
+      if (result.changes !== 1) throw new ConflictError();
+    } catch (error) {
+      if (String(error.message).includes("UNIQUE")) {
+        throw new ConflictError("这个歌单地址已被使用");
+      }
+      throw error;
+    }
+    this.audit("music.playlist.update", username, {
+      playlistId: id,
+      version: current.version + 1,
+    });
+    return this.getMusicPlaylist(id);
+  }
+
+  deleteMusicPlaylist(id, expectedVersion, username = "admin") {
+    const current = this.getMusicPlaylist(id);
+    if (!current) throw new NotFoundError("歌单不存在");
+    if (Number(expectedVersion) !== current.version) throw new ConflictError();
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `UPDATE music_playlists
+         SET deleted_at = ?, updated_at = ?, version = version + 1
+         WHERE id = ? AND version = ?`,
+      )
+      .run(timestamp, timestamp, id, current.version);
+    this.db
+      .prepare(
+        `UPDATE music_playlist_tracks
+         SET deleted_at = ?, updated_at = ?, version = version + 1
+         WHERE playlist_id = ? AND deleted_at IS NULL`,
+      )
+      .run(timestamp, timestamp, id);
+    this.audit("music.playlist.delete", username, { playlistId: id });
+    return { id };
+  }
+
+  createMusicPlaylistTrack(playlistId, input, username = "admin") {
+    const playlist = this.getMusicPlaylist(playlistId);
+    if (!playlist) throw new NotFoundError("歌单不存在");
+    const title = normalizeMusicText(input.title, "曲目名称", 200, true);
+    const artistName = normalizeMusicText(input.artistName, "歌手名称", 200);
+    const albumTitle = normalizeMusicText(input.albumTitle, "所属专辑", 200);
+    const coverUrl = normalizeMusicUrl(input.coverUrl, "封面地址");
+    const audioUrl = normalizePlaylistAudioUrl(input.audioUrl, "音频地址");
+    const genre = normalizeMusicText(input.genre, "流派", 80);
+    const lyricsLrc = String(input.lyricsLrc ?? "").slice(0, 40000);
+    const translationLrc = String(input.translationLrc ?? "").slice(0, 40000);
+    const durationSeconds = Math.max(0, Math.round(Number(input.durationSeconds) || 0));
+    const position = Number.isFinite(Number(input.position))
+      ? Math.max(1, Math.round(Number(input.position)))
+      : playlist.tracks.length + 1;
+    const nextPosition =
+      input.position === undefined
+        ? (this.db
+            .prepare(
+              `SELECT COALESCE(MAX(position), 0) + 1 AS next
+               FROM music_playlist_tracks
+               WHERE playlist_id = ? AND deleted_at IS NULL`,
+            )
+            .get(playlistId).next ?? position)
+        : position;
+    const id = `pltrack_${randomUUID()}`;
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO music_playlist_tracks (
+          id, playlist_id, position, title, artist_name, album_title, cover_url,
+          audio_url, source, external_id, genre, duration_seconds, lyrics_lrc,
+          translation_lrc, created_at, updated_at, version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+      .run(
+        id,
+        playlistId,
+        nextPosition,
+        title,
+        artistName,
+        albumTitle,
+        coverUrl,
+        audioUrl,
+        normalizePlaylistSource(input.source),
+        normalizeMusicText(input.externalId, "外部 ID", 120),
+        genre,
+        durationSeconds,
+        lyricsLrc,
+        translationLrc,
+        timestamp,
+        timestamp,
+      );
+    this.audit("music.playlist.track.create", username, {
+      playlistId,
+      trackId: id,
+    });
+    return this.getMusicPlaylist(playlistId);
+  }
+
+  updateMusicPlaylistTrack(id, input, expectedVersion, username = "admin") {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM music_playlist_tracks WHERE id = ? AND deleted_at IS NULL",
+      )
+      .get(id);
+    const current = rowToMusicPlaylistTrack(row);
+    if (!current) throw new NotFoundError("曲目不存在");
+    if (Number(expectedVersion) !== current.version) throw new ConflictError();
+
+    const title =
+      input.title !== undefined
+        ? normalizeMusicText(input.title, "曲目名称", 200, true)
+        : current.title;
+    const artistName =
+      input.artistName !== undefined
+        ? normalizeMusicText(input.artistName, "歌手名称", 200)
+        : current.artistName;
+    const albumTitle =
+      input.albumTitle !== undefined
+        ? normalizeMusicText(input.albumTitle, "所属专辑", 200)
+        : current.albumTitle;
+    const coverUrl =
+      input.coverUrl !== undefined
+        ? normalizeMusicUrl(input.coverUrl, "封面地址")
+        : current.coverUrl;
+    const audioUrl =
+      input.audioUrl !== undefined
+        ? normalizePlaylistAudioUrl(input.audioUrl, "音频地址")
+        : current.audioUrl;
+    const genre =
+      input.genre !== undefined
+        ? normalizeMusicText(input.genre, "流派", 80)
+        : current.genre;
+    const lyricsLrc =
+      input.lyricsLrc !== undefined
+        ? String(input.lyricsLrc).slice(0, 40000)
+        : current.lyricsLrc;
+    const translationLrc =
+      input.translationLrc !== undefined
+        ? String(input.translationLrc).slice(0, 40000)
+        : current.translationLrc;
+    const durationSeconds =
+      input.durationSeconds !== undefined
+        ? Math.max(0, Math.round(Number(input.durationSeconds) || 0))
+        : current.durationSeconds;
+    const position =
+      input.position !== undefined && Number.isFinite(Number(input.position))
+        ? Math.max(1, Math.round(Number(input.position)))
+        : current.position;
+
+    const result = this.db
+      .prepare(
+        `UPDATE music_playlist_tracks SET
+          position = ?, title = ?, artist_name = ?, album_title = ?, cover_url = ?,
+          audio_url = ?, source = ?, external_id = ?, genre = ?, duration_seconds = ?,
+          lyrics_lrc = ?, translation_lrc = ?, updated_at = ?, version = version + 1
+         WHERE id = ? AND version = ? AND deleted_at IS NULL`,
+      )
+      .run(
+        position,
+        title,
+        artistName,
+        albumTitle,
+        coverUrl,
+        audioUrl,
+        input.source !== undefined ? normalizePlaylistSource(input.source) : current.source,
+        input.externalId !== undefined
+          ? normalizeMusicText(input.externalId, "外部 ID", 120)
+          : current.externalId,
+        genre,
+        durationSeconds,
+        lyricsLrc,
+        translationLrc,
+        nowIso(),
+        id,
+        current.version,
+      );
+    if (result.changes !== 1) throw new ConflictError();
+    this.audit("music.playlist.track.update", username, {
+      playlistId: current.playlistId,
+      trackId: id,
+    });
+    return this.getMusicPlaylist(current.playlistId);
+  }
+
+  deleteMusicPlaylistTrack(id, expectedVersion, username = "admin") {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM music_playlist_tracks WHERE id = ? AND deleted_at IS NULL",
+      )
+      .get(id);
+    const current = rowToMusicPlaylistTrack(row);
+    if (!current) throw new NotFoundError("曲目不存在");
+    if (Number(expectedVersion) !== current.version) throw new ConflictError();
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `UPDATE music_playlist_tracks
+         SET deleted_at = ?, updated_at = ?, version = version + 1
+         WHERE id = ? AND version = ?`,
+      )
+      .run(timestamp, timestamp, id, current.version);
+    this.audit("music.playlist.track.delete", username, {
+      playlistId: current.playlistId,
+      trackId: id,
+    });
+    return this.getMusicPlaylist(current.playlistId);
+  }
+
+  reorderMusicPlaylistTracks(playlistId, orderedIds, username = "admin") {
+    const playlist = this.getMusicPlaylist(playlistId);
+    if (!playlist) throw new NotFoundError("歌单不存在");
+    const ids = Array.isArray(orderedIds) ? orderedIds.map(String) : [];
+    const known = new Set(playlist.tracks.map((track) => track.id));
+    if (ids.length !== known.size || ids.some((id) => !known.has(id))) {
+      throw new ValidationError("排序清单与歌单曲目不一致");
+    }
+    const timestamp = nowIso();
+    const statement = this.db.prepare(
+      `UPDATE music_playlist_tracks
+       SET position = ?, updated_at = ?
+       WHERE id = ? AND playlist_id = ? AND deleted_at IS NULL`,
+    );
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      ids.forEach((trackId, index) => {
+        statement.run(index + 1, timestamp, trackId, playlistId);
+      });
+      this.db
+        .prepare(
+          `UPDATE music_playlists
+           SET updated_at = ?, version = version + 1
+           WHERE id = ? AND deleted_at IS NULL`,
+        )
+        .run(timestamp, playlistId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.audit("music.playlist.track.reorder", username, { playlistId });
+    return this.getMusicPlaylist(playlistId);
+  }
+
+  getIntegrationSettings() {
+    const row = this.db
+      .prepare("SELECT value_json FROM site_settings WHERE key = 'music_integrations'")
+      .get();
+    const stored = row ? safeJson(row.value_json, {}) : {};
+    return {
+      neteaseApiBase: typeof stored.neteaseApiBase === "string" ? stored.neteaseApiBase : "",
+    };
+  }
+
+  setIntegrationSettings(input, username = "admin") {
+    const neteaseApiBase = String(input?.neteaseApiBase ?? "").trim();
+    if (neteaseApiBase.length > 400) throw new ValidationError("接口地址过长");
+    if (
+      neteaseApiBase &&
+      !/^https?:\/\/[^\s]+$/i.test(neteaseApiBase)
+    ) {
+      throw new ValidationError("接口地址必须是 http(s) 地址");
+    }
+    const value = { neteaseApiBase: neteaseApiBase.replace(/\/+$/, "") };
+    this.db
+      .prepare(
+        `INSERT INTO site_settings (key, value_json, updated_at)
+         VALUES ('music_integrations', ?, ?)
+         ON CONFLICT(key) DO UPDATE
+           SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      )
+      .run(JSON.stringify(value), nowIso());
+    this.audit("music.integrations.update", username, {});
+    return value;
   }
 
   addMedia(record) {

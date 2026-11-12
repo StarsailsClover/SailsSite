@@ -8,6 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { Github, Home as HomeIcon, Music2, PenLine, Rss, UserRound } from "lucide-react";
+import AmllFullPlayer from "@/components/music/AmllFullPlayer";
 import FloatingMusicPlayer from "@/components/music/FloatingMusicPlayer";
 import { MusicProvider } from "@/components/music/MusicProvider";
 import { useSiteText } from "@/hooks/useSiteText";
@@ -22,6 +23,7 @@ const About = lazy(() => import("@/pages/About"));
 const Feed = lazy(() => import("@/pages/Feed"));
 const Music = lazy(() => import("@/pages/Music"));
 const MusicAlbum = lazy(() => import("@/pages/MusicAlbum"));
+const MusicPlaylist = lazy(() => import("@/pages/MusicPlaylist"));
 const Studio = lazy(() => import("@/pages/Studio"));
 
 const navItems = [
@@ -80,10 +82,12 @@ function SiteShell() {
         <Route path="/about" element={<About />} />
         <Route path="/feed" element={<Feed />} />
         <Route path="/music" element={<Music />} />
+        <Route path="/music/playlist/:slug" element={<MusicPlaylist />} />
         <Route path="/music/:slug" element={<MusicAlbum />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <FloatingMusicPlayer />
+      <AmllFullPlayer />
     </>
   );
 }
