@@ -10,7 +10,11 @@ import {
   Radio,
 } from "lucide-react";
 import PageFrame from "@/components/PageFrame";
-import { getAssetUrl, useMusic } from "@/components/music/MusicProvider";
+import {
+  getAssetUrl,
+  useMusic,
+  type RawTrack,
+} from "@/components/music/MusicProvider";
 import {
   activeLyricIndex,
   formatTrackDuration,
@@ -29,7 +33,7 @@ export default function MusicAlbum() {
     isPlaying,
     progress,
     playPause,
-    selectTrackById,
+    playQueue,
   } = useMusic();
   const [detail, setDetail] = useState<MusicAlbumDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +101,26 @@ export default function MusicAlbum() {
     ? activeLyricIndex(lyricLines, progress)
     : -1;
 
+  // 唱片页自带播放队列：歌词随队列一起进入播放器，也不会和歌单队列互相顶掉。
+  const albumQueue = useMemo<RawTrack[]>(() => {
+    if (!detail) return [];
+    const cover = detail.album.coverUrl;
+    return detail.album.tracks.map((track) => ({
+      id: track.id,
+      title: track.title,
+      artist: track.artistName,
+      album: detail.album.title,
+      albumSlug: detail.album.slug,
+      filePath: track.audioUrl,
+      coverPath: track.coverUrl || cover || "assets/musicbox/cover/Elegant.jpg",
+      genre: track.genre,
+      source: "authored" as const,
+      lyricsLrc: track.lyricsLrc,
+      translationLrc: track.translationLrc,
+      durationSeconds: track.durationSeconds,
+    }));
+  }, [detail]);
+
   useEffect(() => {
     if (!followLyrics || activeLine < 0 || !lyricViewportRef.current) return;
     const viewport = lyricViewportRef.current;
@@ -142,6 +166,10 @@ export default function MusicAlbum() {
 
   const { album } = detail;
   const firstTrack = album.tracks[0];
+  const albumQueueId = `album:${album.slug}`;
+  const selectedTrackIndex = album.tracks.findIndex(
+    (track) => track.id === selectedTrack?.id,
+  );
   const totalSeconds = album.tracks.reduce(
     (sum, track) => sum + track.durationSeconds,
     0,
@@ -180,7 +208,7 @@ export default function MusicAlbum() {
             type="button"
             className="music-album-play"
             disabled={!firstTrack}
-            onClick={() => firstTrack && selectTrackById(firstTrack.id)}
+            onClick={() => playQueue(albumQueue, 0, album.title, albumQueueId)}
           >
             <Play size={18} />
             播放整张专辑
@@ -201,7 +229,7 @@ export default function MusicAlbum() {
             <h2>曲目</h2>
           </header>
           <div className="album-tracklist">
-            {album.tracks.map((track) => (
+            {album.tracks.map((track, index) => (
               <AlbumTrack
                 key={track.id}
                 track={track}
@@ -210,7 +238,7 @@ export default function MusicAlbum() {
                 playing={currentTrack?.id === track.id && isPlaying}
                 onSelect={() => {
                   setSelectedTrackId(track.id);
-                  selectTrackById(track.id);
+                  playQueue(albumQueue, index, album.title, albumQueueId);
                 }}
               />
             ))}
@@ -271,11 +299,13 @@ export default function MusicAlbum() {
                   key={`${line.time ?? "plain"}-${index}`}
                   onClick={() => {
                     setFollowLyrics(true);
-                    if (line.time === null) {
-                      selectTrackById(selectedTrack.id);
-                      return;
-                    }
-                    selectTrackById(selectedTrack.id, line.time);
+                    playQueue(
+                      albumQueue,
+                      selectedTrackIndex,
+                      album.title,
+                      albumQueueId,
+                      line.time ?? undefined,
+                    );
                   }}
                 >
                   <time>
@@ -300,7 +330,13 @@ export default function MusicAlbum() {
               className="lyrics-play-line"
               onClick={() => {
                 if (sameTrackIsPlaying) playPause();
-                else selectTrackById(selectedTrack.id);
+                else
+                  playQueue(
+                    albumQueue,
+                    selectedTrackIndex,
+                    album.title,
+                    albumQueueId,
+                  );
               }}
             >
               {sameTrackIsPlaying && isPlaying ? <Pause size={16} /> : <Play size={16} />}

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { listMusicTracks, type MusicPlaylistTrack } from "@/lib/api";
+import { getMusicAlbum, listMusicTracks, type MusicPlaylistTrack } from "@/lib/api";
 
 export type RawTrack = {
   id: string;
@@ -35,11 +35,17 @@ type MusicConfig = {
   };
 };
 
+export type RepeatMode = "off" | "all" | "one";
+
 type MusicContextValue = {
   tracks: RawTrack[];
   currentTrack: RawTrack | null;
   currentIndex: number;
   queueLabel: string;
+  queueId: string;
+  hasCustomQueue: boolean;
+  repeatMode: RepeatMode;
+  shuffle: boolean;
   isPlaying: boolean;
   progress: number;
   duration: number;
@@ -51,7 +57,16 @@ type MusicContextValue = {
   selectTrack: (index: number) => void;
   selectTrackById: (id: string, startAt?: number) => void;
   seek: (value: number) => void;
-  playQueue: (items: RawTrack[], startIndex?: number, label?: string) => void;
+  playQueue: (
+    items: RawTrack[],
+    startIndex?: number,
+    label?: string,
+    queueId?: string,
+    startAt?: number,
+  ) => void;
+  playDefaultQueue: (startIndex?: number) => void;
+  setRepeatMode: (mode: RepeatMode) => void;
+  toggleShuffle: () => void;
   openFullPlayer: () => void;
   closeFullPlayer: () => void;
 };
@@ -115,6 +130,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingSeekRef = useRef<{ id: string; time: number } | null>(null);
   const switchingTrackRef = useRef(false);
+  const errorSkipsRef = useRef(0);
   const [tracks, setTracks] = useState<RawTrack[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -122,8 +138,14 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [queueLabel, setQueueLabel] = useState("音乐空间");
+  const [queueId, setQueueId] = useState("default");
   const [fullPlayerOpen, setFullPlayerOpen] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
+  const [shuffle, setShuffle] = useState(false);
+  const currentTrackIdRef = useRef<string | null>(null);
   const defaultQueueRef = useRef<RawTrack[]>([]);
+  const defaultQueueLabelRef = useRef("音乐空间");
+  const lyricCacheRef = useRef(new Map<string, { lyricsLrc: string; translationLrc: string }>());
 
   useEffect(() => {
     Promise.all([
@@ -157,6 +179,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         const neteaseTracks = await loadNeteaseTracks(config);
         const nextTracks = [...authored, ...localSongs, ...neteaseTracks];
         defaultQueueRef.current = nextTracks;
+        defaultQueueLabelRef.current = authored.length > 0 ? "创作专辑" : "音乐盒精选";
         setTracks(nextTracks);
         const elegantIndex = nextTracks.findIndex((track) => track.title.toLowerCase() === "elegant");
         setQueueLabel(authored.length > 0 ? "创作专辑" : "音乐盒精选");
@@ -169,6 +192,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const currentTrackId = currentTrack?.id;
   const currentTrackPath = currentTrack?.filePath;
   const currentTrackTitle = currentTrack?.title;
+  currentTrackIdRef.current = currentTrackId ?? null;
 
   useEffect(() => {
     if (!audioRef.current || !currentTrackId || !currentTrackPath) return;
@@ -194,13 +218,37 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     });
   }, [currentTrackId, currentTrackTitle, isPlaying]);
 
-  const next = useCallback(() => {
-    setCurrentIndex((index) => (tracks.length ? (index + 1) % tracks.length : 0));
-  }, [tracks.length]);
+  const advance = useCallback(
+    (direction: 1 | -1) => {
+      setCurrentIndex((index) => {
+        const length = tracks.length;
+        if (length === 0) return 0;
+        if (shuffle && direction === 1) {
+          let candidate = index;
+          while (candidate === index && length > 1) {
+            candidate = Math.floor(Math.random() * length);
+          }
+          return candidate;
+        }
+        const target = index + direction;
+        if (target >= 0 && target < length) return target;
+        return repeatMode === "all" ? (target + length) % length : index;
+      });
+    },
+    [repeatMode, shuffle, tracks.length],
+  );
+
+  const next = useCallback(() => advance(1), [advance]);
 
   const previous = useCallback(() => {
-    setCurrentIndex((index) => (tracks.length ? (index - 1 + tracks.length) % tracks.length : 0));
-  }, [tracks.length]);
+    const audio = audioRef.current;
+    if (audio && audio.currentTime > 3) {
+      audio.currentTime = 0;
+      setProgress(0);
+      return;
+    }
+    advance(-1);
+  }, [advance]);
 
   const playPause = useCallback(() => {
     const audio = audioRef.current;
@@ -218,22 +266,38 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const selectTrackById = useCallback((id: string, startAt?: number) => {
-    const index = tracks.findIndex((track) => track.id === id);
-    if (index < 0) return;
-    if (index === currentIndex && audioRef.current) {
-      if (typeof startAt === "number" && Number.isFinite(startAt)) {
-        audioRef.current.currentTime = Math.max(0, startAt);
-        setProgress(Math.max(0, startAt));
+    const seekTime =
+      typeof startAt === "number" && Number.isFinite(startAt)
+        ? Math.max(0, startAt)
+        : null;
+    const startPlayback = (index: number) => {
+      if (index === currentIndex && audioRef.current) {
+        if (seekTime !== null) {
+          audioRef.current.currentTime = seekTime;
+          setProgress(seekTime);
+        }
+        pendingSeekRef.current = null;
+        setIsPlaying(true);
+        return;
       }
-      pendingSeekRef.current = null;
+      pendingSeekRef.current = seekTime !== null ? { id, time: seekTime } : null;
+      setCurrentIndex(index);
       setIsPlaying(true);
+    };
+
+    const queueIndex = tracks.findIndex((track) => track.id === id);
+    if (queueIndex >= 0) {
+      startPlayback(queueIndex);
       return;
     }
-    pendingSeekRef.current =
-      typeof startAt === "number" && Number.isFinite(startAt)
-        ? { id, time: Math.max(0, startAt) }
-        : null;
-    setCurrentIndex(index);
+    // 当前队列（例如歌单）里没有这首曲目时，回退到全站默认队列而不是静默失败。
+    const defaultIndex = defaultQueueRef.current.findIndex((track) => track.id === id);
+    if (defaultIndex < 0) return;
+    pendingSeekRef.current = seekTime !== null ? { id, time: seekTime } : null;
+    setTracks([...defaultQueueRef.current]);
+    setQueueId("default");
+    setQueueLabel(defaultQueueLabelRef.current);
+    setCurrentIndex(defaultIndex);
     setIsPlaying(true);
   }, [currentIndex, tracks]);
 
@@ -244,12 +308,36 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const playQueue = useCallback(
-    (items: RawTrack[], startIndex = 0, label?: string) => {
+    (
+      items: RawTrack[],
+      startIndex = 0,
+      label?: string,
+      id = "custom",
+      startAt?: number,
+    ) => {
       const queue = items.filter((item) => Boolean(item.filePath));
       if (queue.length === 0) return;
       const safeIndex = Math.min(Math.max(0, startIndex), queue.length - 1);
-      pendingSeekRef.current = null;
+      const targetId = queue[safeIndex]?.id;
+      const seekTime =
+        typeof startAt === "number" && Number.isFinite(startAt)
+          ? Math.max(0, startAt)
+          : null;
+      if (
+        seekTime !== null &&
+        targetId &&
+        currentTrackIdRef.current === targetId &&
+        audioRef.current
+      ) {
+        audioRef.current.currentTime = seekTime;
+        setProgress(seekTime);
+        pendingSeekRef.current = null;
+      } else {
+        pendingSeekRef.current =
+          seekTime !== null && targetId ? { id: targetId, time: seekTime } : null;
+      }
       setTracks(queue);
+      setQueueId(id);
       setCurrentIndex(safeIndex);
       setIsPlaying(true);
       if (label) setQueueLabel(label);
@@ -257,14 +345,102 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const playDefaultQueue = useCallback((startIndex = 0) => {
+    const queue = defaultQueueRef.current;
+    if (queue.length === 0) return;
+    const safeIndex = Math.min(Math.max(0, startIndex), queue.length - 1);
+    pendingSeekRef.current = null;
+    setTracks([...queue]);
+    setQueueId("default");
+    setQueueLabel(defaultQueueLabelRef.current);
+    setCurrentIndex(safeIndex);
+    setIsPlaying(true);
+  }, []);
+
+  const cycleRepeatMode = useCallback(() => {
+    setRepeatMode((mode) => (mode === "off" ? "all" : mode === "all" ? "one" : "off"));
+  }, []);
+
+  const toggleShuffle = useCallback(() => setShuffle((value) => !value), []);
+
   const openFullPlayer = useCallback(() => setFullPlayerOpen(true), []);
   const closeFullPlayer = useCallback(() => setFullPlayerOpen(false), []);
+
+  // 创作专辑的公共列表接口为了体积不返回歌词，这里在选中曲目后补取一次歌词。
+  useEffect(() => {
+    const track = currentTrack;
+    if (!track || track.lyricsLrc?.trim() || !track.albumSlug) return;
+    const cached = lyricCacheRef.current.get(track.id);
+    if (cached) {
+      setTracks((previous) =>
+        previous.map((item) => (item.id === track.id ? { ...item, ...cached } : item)),
+      );
+      return;
+    }
+    let active = true;
+    getMusicAlbum(track.albumSlug)
+      .then((detail) => {
+        if (!active) return;
+        const found = detail.album.tracks.find((item) => item.id === track.id);
+        if (!found) return;
+        const lyrics = {
+          lyricsLrc: found.lyricsLrc,
+          translationLrc: found.translationLrc,
+        };
+        lyricCacheRef.current.set(track.id, lyrics);
+        setTracks((previous) =>
+          previous.map((item) =>
+            item.id === track.id
+              ? {
+                  ...item,
+                  ...lyrics,
+                  durationSeconds: item.durationSeconds || found.durationSeconds,
+                }
+              : item,
+          ),
+        );
+      })
+      .catch(() => {
+        // 歌词补取失败不影响播放，播放器会退回“暂无歌词”状态。
+      });
+    return () => {
+      active = false;
+    };
+    // 只在曲目标识或歌词载荷变化时补取，避免因为 currentTrack 整体引用变化反复请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id, currentTrack?.albumSlug, currentTrack?.lyricsLrc]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator) || !currentTrack) {
+      return;
+    }
+    const media = navigator.mediaSession;
+    media.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.artist,
+      album: currentTrack.album,
+      artwork: currentTrack.coverPath
+        ? [{ src: assetUrl(currentTrack.coverPath), sizes: "512x512", type: "image/jpeg" }]
+        : [],
+    });
+    media.setActionHandler("play", () => setIsPlaying(true));
+    media.setActionHandler("pause", () => setIsPlaying(false));
+    media.setActionHandler("previoustrack", previous);
+    media.setActionHandler("nexttrack", next);
+    media.setActionHandler("seekto", (details) => {
+      if (typeof details.seekTime === "number") seek(details.seekTime);
+    });
+  }, [currentTrack, next, previous, seek]);
 
   const value = useMemo(() => ({
     tracks,
     currentTrack,
     currentIndex,
     queueLabel,
+    queueId,
+    hasCustomQueue: queueId !== "default",
+    repeatMode,
+    shuffle,
     isPlaying,
     progress,
     duration,
@@ -277,9 +453,12 @@ export function MusicProvider({ children }: { children: ReactNode }) {
     selectTrackById,
     seek,
     playQueue,
+    playDefaultQueue,
+    setRepeatMode: cycleRepeatMode,
+    toggleShuffle,
     openFullPlayer,
     closeFullPlayer,
-  }), [tracks, currentTrack, currentIndex, queueLabel, isPlaying, progress, duration, error, fullPlayerOpen, playPause, next, previous, selectTrack, selectTrackById, seek, playQueue, openFullPlayer, closeFullPlayer]);
+  }), [tracks, currentTrack, currentIndex, queueLabel, queueId, repeatMode, shuffle, isPlaying, progress, duration, error, fullPlayerOpen, playPause, next, previous, selectTrack, selectTrackById, seek, playQueue, playDefaultQueue, cycleRepeatMode, toggleShuffle, openFullPlayer, closeFullPlayer]);
 
   return (
     <MusicContext.Provider value={value}>
@@ -289,6 +468,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
+          errorSkipsRef.current = 0;
           setDuration(audio.duration || 0);
           const pending = pendingSeekRef.current;
           if (pending && currentTrack?.id === pending.id) {
@@ -302,7 +482,22 @@ export function MusicProvider({ children }: { children: ReactNode }) {
         onPause={() => {
           if (!switchingTrackRef.current) setIsPlaying(false);
         }}
-        onEnded={next}
+        onEnded={() => {
+          if (repeatMode === "one") {
+            const audio = audioRef.current;
+            if (!audio) return;
+            audio.currentTime = 0;
+            setProgress(0);
+            void audio.play();
+            return;
+          }
+          const isLast = currentIndex >= tracks.length - 1;
+          if (repeatMode === "off" && !shuffle && isLast) {
+            setIsPlaying(false);
+            return;
+          }
+          next();
+        }}
         onError={() => {
           // load() 中断旧曲目的 MEDIA_ERR_ABORTED 是切歌的正常竞态，不是播放失败
           const mediaError = audioRef.current?.error;
@@ -310,6 +505,14 @@ export function MusicProvider({ children }: { children: ReactNode }) {
           switchingTrackRef.current = false;
           setIsPlaying(false);
           if (currentTrack) setError(`无法播放 ${currentTrack.title}，可能文件不存在或外链受限。`);
+          // 单曲失效时自动跳过，最多连续跳过 3 首，避免整条队列被一首先坏掉的音轨卡住。
+          if (tracks.length > 1 && errorSkipsRef.current < 3) {
+            errorSkipsRef.current += 1;
+            window.setTimeout(() => {
+              setIsPlaying(true);
+              next();
+            }, 400);
+          }
         }}
       />
     </MusicContext.Provider>

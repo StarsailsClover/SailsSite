@@ -1037,6 +1037,16 @@ body[data-full-player="open"] .floating-player { opacity: 0; pointer-events: non
 }
 .amll-topbar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .amll-queue { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(216, 168, 95, 0.66); }
+.amll-queue-group { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.amll-queue-reset {
+  min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px;
+  color: rgba(232, 242, 239, 0.68); font-size: 11px;
+  transition: border-color 0.3s, color 0.3s;
+}
+.amll-queue-reset:hover { border-color: var(--line-strong); color: var(--water); }
+.amll-buttons button.is-active {
+  border-color: rgba(216, 168, 95, 0.5); color: var(--warm); background: rgba(216, 168, 95, 0.1);
+}
 .amll-close {
   width: 44px; height: 44px; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: 50%; color: rgba(232, 242, 239, 0.75);

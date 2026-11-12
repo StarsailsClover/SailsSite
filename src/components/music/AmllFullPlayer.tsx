@@ -4,6 +4,9 @@ import {
   ListMusic,
   Pause,
   Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
   SkipBack,
   SkipForward,
   X,
@@ -51,12 +54,18 @@ export default function AmllFullPlayer() {
     progress,
     duration,
     queueLabel,
+    hasCustomQueue,
+    repeatMode,
+    shuffle,
     fullPlayerOpen,
     closeFullPlayer,
     playPause,
     next,
     previous,
     seek,
+    playDefaultQueue,
+    setRepeatMode,
+    toggleShuffle,
   } = useMusic();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
@@ -254,7 +263,18 @@ export default function AmllFullPlayer() {
       />
       <div className="amll-panel">
         <header className="amll-topbar">
-          <span className="amll-queue">{queueLabel}</span>
+          <div className="amll-queue-group">
+            <span className="amll-queue">{queueLabel}</span>
+            {hasCustomQueue && (
+              <button
+                type="button"
+                className="amll-queue-reset"
+                onClick={() => playDefaultQueue(0)}
+              >
+                回到全站队列
+              </button>
+            )}
+          </div>
           <button
             type="button"
             className="amll-close"
@@ -349,6 +369,16 @@ export default function AmllFullPlayer() {
             <span>{formatClock(duration)}</span>
           </div>
           <div className="amll-buttons">
+            <button
+              type="button"
+              className={shuffle ? "is-active" : ""}
+              onClick={toggleShuffle}
+              aria-pressed={shuffle}
+              aria-label="随机播放"
+              title="随机播放"
+            >
+              <Shuffle size={17} />
+            </button>
             <button type="button" onClick={previous} aria-label="上一首">
               <SkipBack size={18} />
             </button>
@@ -362,6 +392,24 @@ export default function AmllFullPlayer() {
             </button>
             <button type="button" onClick={next} aria-label="下一首">
               <SkipForward size={18} />
+            </button>
+            <button
+              type="button"
+              className={repeatMode !== "off" ? "is-active" : ""}
+              onClick={() =>
+                setRepeatMode(
+                  repeatMode === "off" ? "all" : repeatMode === "all" ? "one" : "off",
+                )
+              }
+              aria-pressed={repeatMode !== "off"}
+              aria-label={
+                repeatMode === "one" ? "单曲循环" : repeatMode === "all" ? "列表循环" : "不循环"
+              }
+              title={
+                repeatMode === "one" ? "单曲循环" : repeatMode === "all" ? "列表循环" : "不循环"
+              }
+            >
+              {repeatMode === "one" ? <Repeat1 size={17} /> : <Repeat size={17} />}
             </button>
           </div>
         </footer>

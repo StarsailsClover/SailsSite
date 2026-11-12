@@ -77,7 +77,12 @@ export default function Music() {
         setPlaylistError("这张歌单还没有可播放的曲目。");
         return;
       }
-      playQueue(queue, 0, detail.playlist.title);
+      playQueue(
+        queue,
+        0,
+        detail.playlist.title,
+        `playlist:${detail.playlist.slug}`,
+      );
     } catch {
       setPlaylistError("这张歌单暂时无法播放。");
     } finally {
