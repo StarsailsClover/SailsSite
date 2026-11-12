@@ -37,8 +37,6 @@ export default function MusicAlbum() {
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const [followLyrics, setFollowLyrics] = useState(true);
   const lyricViewportRef = useRef<HTMLDivElement | null>(null);
-  const autoScrollRef = useRef(false);
-  const autoScrollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -106,7 +104,6 @@ export default function MusicAlbum() {
       `[data-lyric-index="${activeLine}"]`,
     );
     if (!line) return;
-    autoScrollRef.current = true;
     viewport.scrollTo({
       top: Math.max(
         0,
@@ -116,22 +113,7 @@ export default function MusicAlbum() {
         ? "auto"
         : "smooth",
     });
-    if (autoScrollTimerRef.current !== null) {
-      window.clearTimeout(autoScrollTimerRef.current);
-    }
-    autoScrollTimerRef.current = window.setTimeout(() => {
-      autoScrollRef.current = false;
-    }, 650);
   }, [activeLine, followLyrics]);
-
-  useEffect(
-    () => () => {
-      if (autoScrollTimerRef.current !== null) {
-        window.clearTimeout(autoScrollTimerRef.current);
-      }
-    },
-    [],
-  );
 
   if (loading) {
     return (
@@ -258,8 +240,21 @@ export default function MusicAlbum() {
             <div
               className="lyric-viewport"
               ref={lyricViewportRef}
-              onScroll={() => {
-                if (!autoScrollRef.current) setFollowLyrics(false);
+              onWheel={(event) => {
+                if (event.deltaY !== 0) setFollowLyrics(false);
+              }}
+              onTouchMove={() => setFollowLyrics(false)}
+              onPointerDown={(event) => {
+                if (event.pointerType === "mouse") setFollowLyrics(false);
+              }}
+              onKeyDown={(event) => {
+                if (
+                  ["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(
+                    event.key,
+                  )
+                ) {
+                  setFollowLyrics(false);
+                }
               }}
             >
               {lyricLines.map((line, index) => (
